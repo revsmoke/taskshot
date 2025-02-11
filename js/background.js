@@ -290,8 +290,8 @@ class BackgroundService {
             await dbService.addTask(task);
             console.log('Task stored in database');
 
-            // Update UI
-            this.addTaskToUI(task);
+            // Update UI using the UI module's function
+            window.addTaskToUI(task);
 
             // If confidence is low, show confirmation modal
             if (classification.confidence < 0.7) {
@@ -331,7 +331,7 @@ class BackgroundService {
             
             try {
                 await dbService.addTask(failedTask);
-                this.addTaskToUI(failedTask);
+                window.addTaskToUI(failedTask);
             } catch (saveError) {
                 errorService.error('Failed to save error task', saveError);
             }
@@ -408,7 +408,7 @@ class BackgroundService {
                 confidence: input.value === task.name ? task.confidence : 1.0 // Only set to 1.0 if user modified the task
             };
             await dbService.addTask(updatedTask);
-            this.addTaskToUI(updatedTask);
+            window.addTaskToUI(updatedTask);
             cleanup();
         };
 
@@ -450,17 +450,17 @@ class BackgroundService {
                          class="task-screenshot"
                          style="width: 50px; height: 50px; object-fit: contain; margin-right: 10px; cursor: pointer;"
                          title="Click to view full screenshot">
-                    <strong>${task.name}</strong>
+                    <strong class="task-name">${task.name}</strong>
                 </div>
                 <div class="task-details">
-                    <span>Project: ${task.project}</span> |
-                    <span>Category: ${task.category}</span> |
-                    <span>Duration: ${task.duration} min</span>
+                    <span class="task-project">Project: ${task.project}</span> |
+                    <span class="task-category">Category: ${task.category}</span> |
+                    <span class="task-duration">Duration: ${task.duration} min</span>
                 </div>
                 <div class="task-time">
                     ${startTime} - ${endTime}
                 </div>
-                <div>Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
+                <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
                 ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
                 <div class="task-uuid">ID: ${task.uuid}</div>
                 <div class="task-actions">

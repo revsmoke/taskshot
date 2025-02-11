@@ -658,13 +658,13 @@ const addExportButton = () => {
     exportButton.addEventListener('click', () => {
         // Get all tasks from the UI
         const tasks = Array.from(document.querySelectorAll('.task-item')).map(task => {
-            const name = task.querySelector('strong').textContent;
-            const confidenceText = task.querySelector('div:nth-child(4)').textContent;
+            const name = task.querySelector('.task-name').textContent;
+            const confidenceText = task.querySelector('.task-confidence').textContent;
             const confidence = parseFloat(confidenceText.match(/[\d.]+/)[0]) / 100;
             const projectId = task.dataset.project;
             const project = projects.find(p => p.id === projectId)?.name || 'Unknown Project';
-            const category = task.querySelector('.task-details span:nth-child(2)').textContent.replace('Category: ', '');
-            const duration = parseInt(task.querySelector('.task-details span:nth-child(3)').textContent.match(/\d+/)[0]);
+            const category = task.querySelector('.task-category').textContent.replace('Category: ', '');
+            const duration = parseInt(task.querySelector('.task-duration').textContent.match(/\d+/)[0]);
             const timeRange = task.querySelector('.task-time').textContent.trim().split(' - ');
             const billable = task.querySelector('.billable-checkbox input').checked;
             const description = task.querySelector('.task-description')?.textContent || '';
@@ -958,14 +958,14 @@ document.getElementById('mergeSelected').addEventListener('click', async () => {
         const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
         return {
             id: taskId,
-            name: taskElement.querySelector('strong').textContent,
+            name: taskElement.querySelector('.task-name').textContent,
             project: taskElement.dataset.project,
             category: taskElement.dataset.category,
             startTime: new Date(taskElement.dataset.startTime),
             endTime: new Date(taskElement.dataset.endTime),
             description: taskElement.querySelector('.task-description')?.textContent || '',
             billable: taskElement.dataset.billable === 'true',
-            confidence: parseFloat(taskElement.querySelector('div:nth-child(4)').textContent.match(/[\d.]+/)[0]) / 100,
+            confidence: parseFloat(taskElement.querySelector('.task-confidence').textContent.match(/[\d.]+/)[0]) / 100,
             screenshot: taskElement.dataset.screenshot
         };
     }).sort((a, b) => a.startTime - b.startTime);
@@ -1020,7 +1020,8 @@ window.useTemplate = (templateId) => {
     openManualTaskModal();
 };
 
-function addTaskToUI(task) {
+// Export addTaskToUI function and make it available globally
+export function addTaskToUI(task) {
     const taskContainer = document.getElementById('taskContainer');
     if (!taskContainer) return;
     const taskElement = document.createElement('div');
@@ -1051,17 +1052,17 @@ function addTaskToUI(task) {
                      class="task-screenshot"
                      style="width: 50px; height: 50px; object-fit: contain; margin-right: 10px; cursor: pointer;"
                      title="Click to view full screenshot">
-                <strong>${task.name}</strong>
+                <strong class="task-name">${task.name}</strong>
             </div>
             <div class="task-details">
-                <span>Project: ${task.project}</span> |
-                <span>Category: ${task.category}</span> |
-                <span>Duration: ${task.duration} min</span>
+                <span class="task-project">Project: ${task.project}</span> |
+                <span class="task-category">Category: ${task.category}</span> |
+                <span class="task-duration">Duration: ${task.duration} min</span>
             </div>
             <div class="task-time">
                 ${startTime} - ${endTime}
             </div>
-            <div>Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
+            <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
             ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
             <div class="task-uuid">ID: ${task.uuid}</div>
             <div class="task-actions">
@@ -1087,6 +1088,9 @@ function addTaskToUI(task) {
 
     taskContainer.appendChild(taskElement);
 }
+
+// Make addTaskToUI available globally
+window.addTaskToUI = addTaskToUI;
 
 function showScreenshotPreview(screenshot) {
     const modal = document.createElement('div');
@@ -1257,7 +1261,7 @@ window.deleteProject = async (projectId) => {
         const tasks = document.querySelectorAll(`.task-item[data-project="${projectId}"]`);
         tasks.forEach(task => {
             task.dataset.project = defaultProject.id;
-            task.querySelector('.task-details span:first-child').textContent = `Project: ${defaultProject.name}`;
+            task.querySelector('.task-project').textContent = `Project: ${defaultProject.name}`;
         });
     }
 };
@@ -1283,7 +1287,7 @@ window.deleteCategory = (categoryId) => {
         const tasks = document.querySelectorAll(`.task-item[data-category="${categoryId}"]`);
         tasks.forEach(task => {
             task.dataset.category = 'uncategorized';
-            task.querySelector('.task-details span:nth-child(2)').textContent = 'Category: Uncategorized';
+            task.querySelector('.task-category').textContent = 'Category: Uncategorized';
         });
 
         // Remove the category
