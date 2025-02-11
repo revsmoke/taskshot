@@ -1,6 +1,7 @@
 import { aiService } from './ai-service.js';
 import { dbService } from './db-service.js';
 import { errorService } from './error-service.js';
+import { aiProviderService } from './ai-provider-service.js';
 
 class BackgroundService {
     constructor() {
@@ -18,15 +19,22 @@ class BackgroundService {
     }
 
     generateUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            const r = Math.random() * 16 | 0;
-            const v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
+        return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
     }
 
     async initialize() {
         try {
+            // Load saved capture interval
+            const savedInterval = localStorage.getItem('capture_interval');
+            if (savedInterval) {
+                const interval = parseInt(savedInterval, 10);
+                if (interval > 0) {
+                    this.captureInterval = interval;
+                }
+            }
+
             await Promise.all([
                 aiService.initialize(),
                 dbService.initialize()
@@ -39,6 +47,14 @@ class BackgroundService {
             
             errorService.info('Background service initialized successfully');
         } catch (error) {
+            // Don't treat missing API key as a fatal error
+            if (error.message && error.message.includes('API key required')) {
+                errorService.warn('AI services not configured, some features will be limited');
+                // Still initialize the database for manual task entry
+                await dbService.initialize();
+                this.initialized = true;
+                return;
+            }
             errorService.error('Failed to initialize background service', error);
             this.handleError(error);
             throw error;
@@ -48,6 +64,19 @@ class BackgroundService {
     async start() {
         if (this.isTracking || !this.initialized) {
             errorService.warn('Cannot start: ' + (!this.initialized ? 'Not initialized' : 'Already tracking'));
+            return;
+        }
+
+        // Check if AI services are ready
+        if (!aiProviderService.isInitialized) {
+            const provider = aiProviderService.currentProvider;
+            if (provider && provider.requiresKey) {
+                errorService.warn('Cannot start tracking: API key not configured');
+                alert('Please configure your API key in the settings before starting automatic tracking.');
+            } else {
+                errorService.warn('Cannot start tracking: AI provider not configured');
+                alert('Please configure AI provider settings before starting automatic tracking.');
+            }
             return;
         }
 
@@ -199,12 +228,14 @@ class BackgroundService {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(this.videoElement, 0, 0, canvas.width, canvas.height);
 
-            // Convert to base64
+            // Convert to base64, explicitly using JPEG format
             const screenshot = canvas.toDataURL('image/jpeg', 0.8);
+            // Remove the data URL prefix to get just the base64 data
+            const base64Image = screenshot.replace(/^data:image\/jpeg;base64,/, '');
             console.log('Frame captured successfully');
             
             // Process the screenshot
-            await this.processScreenshot(screenshot);
+            await this.processScreenshot(base64Image);
 
             this.lastCapture = new Date();
             this.errorCount = 0; // Reset error count on successful capture
@@ -229,6 +260,9 @@ class BackgroundService {
             const description = await aiService.analyzeScreenshot(screenshot);
             console.log('Vision AI description:', description);
             
+            // Create thumbnail
+            const thumbnailImage = await this.createThumbnail(screenshot);
+            
             // Classify task using LLM
             const classification = await aiService.classifyTask(description);
             console.log('Task classification:', classification);
@@ -246,9 +280,10 @@ class BackgroundService {
                     Math.round((now - this.lastCapture) / 1000 / 60) : // Duration in minutes
                     this.captureInterval, // Use interval for first capture
                 category: classification.task.split(' - ')[0] || 'Uncategorized', // Extract main category
-                project: 'Default', // Can be customized later
+                project: classification.project || 'Default', // Use AI-suggested project
                 billable: true, // Default value, can be customized
-                timestamp: now.toISOString()
+                timestamp: now.toISOString(),
+                screenshot: thumbnailImage // Add screenshot thumbnail
             };
 
             // Store in database
@@ -267,7 +302,18 @@ class BackgroundService {
             console.error('Error processing screenshot:', error);
             // Add a failed task entry with current timestamp
             const now = new Date();
+            
+            // Try to create thumbnail from the screenshot, fall back to default if that fails
+            let thumbnailImage;
+            try {
+                thumbnailImage = await this.createThumbnail(screenshot);
+            } catch (thumbnailError) {
+                console.error('Failed to create thumbnail, using default:', thumbnailError);
+                thumbnailImage = dbService.defaultScreenshot;
+            }
+            
             const failedTask = {
+                uuid: this.generateUUID(),
                 name: 'Task Detection Failed',
                 confidence: 0,
                 description: error.message,
@@ -279,11 +325,51 @@ class BackgroundService {
                 category: 'Error',
                 project: 'Default',
                 billable: false,
-                timestamp: now.toISOString()
+                timestamp: now.toISOString(),
+                screenshot: thumbnailImage
             };
-            this.addTaskToUI(failedTask);
+            
+            try {
+                await dbService.addTask(failedTask);
+                this.addTaskToUI(failedTask);
+            } catch (saveError) {
+                errorService.error('Failed to save error task', saveError);
+            }
+            
             this.handleError(error);
         }
+    }
+
+    async createThumbnail(base64Image) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Set thumbnail size (100x100 pixels)
+                const size = 100;
+                canvas.width = size;
+                canvas.height = size;
+
+                // Calculate aspect ratio
+                const scale = Math.min(size / img.width, size / img.height);
+                const x = (size - img.width * scale) / 2;
+                const y = (size - img.height * scale) / 2;
+
+                // Draw image with white background
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, size, size);
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+                // Convert to base64
+                resolve(canvas.toDataURL('image/jpeg', 0.7));
+            };
+            img.onerror = () => {
+                reject(new Error('Failed to create thumbnail'));
+            };
+            img.src = 'data:image/jpeg;base64,' + base64Image;
+        });
     }
 
     showTaskConfirmation(task) {
@@ -291,8 +377,15 @@ class BackgroundService {
         const overlay = document.getElementById('modalOverlay');
         const suggestion = document.getElementById('taskSuggestion');
         const input = document.getElementById('taskInput');
+        const projectSelect = document.getElementById('taskProjectSelect');
         const confirmBtn = document.getElementById('confirmTask');
         const cancelBtn = document.getElementById('cancelTask');
+
+        // Load projects into select
+        const projects = JSON.parse(localStorage.getItem('projects')) || [];
+        projectSelect.innerHTML = projects.map(p => 
+            `<option value="${p.id}" ${p.id === task.project ? 'selected' : ''}>${p.name}</option>`
+        ).join('');
 
         suggestion.textContent = `Suggested: ${task.name} (${(task.confidence * 100).toFixed(1)}% confident)`;
         input.value = task.name;
@@ -311,7 +404,8 @@ class BackgroundService {
             const updatedTask = {
                 ...task,
                 name: input.value,
-                confidence: 1.0 // User confirmed
+                project: projectSelect.value,
+                confidence: input.value === task.name ? task.confidence : 1.0 // Only set to 1.0 if user modified the task
             };
             await dbService.addTask(updatedTask);
             this.addTaskToUI(updatedTask);
@@ -330,7 +424,7 @@ class BackgroundService {
         const taskContainer = document.getElementById('taskContainer');
         const taskElement = document.createElement('div');
         taskElement.className = 'task-item';
-        taskElement.dataset.taskId = task.uuid;  // Store UUID in dataset
+        taskElement.dataset.taskId = task.uuid;
         taskElement.dataset.project = task.project;
         taskElement.dataset.category = task.category;
         taskElement.dataset.billable = task.billable;
@@ -338,14 +432,26 @@ class BackgroundService {
         taskElement.dataset.endTime = task.endTime;
         taskElement.dataset.timestamp = task.timestamp;
         taskElement.dataset.duration = task.duration;
+        taskElement.dataset.screenshot = task.screenshot || dbService.defaultScreenshot;
         
         // Format times for display
         const startTime = new Date(task.startTime).toLocaleTimeString();
         const endTime = new Date(task.endTime).toLocaleTimeString();
         
         taskElement.innerHTML = `
-            <div>
-                <strong>${task.name}</strong>
+            <div class="task-content">
+                <div class="task-header">
+                    <label class="task-select">
+                        <input type="checkbox" class="task-checkbox" title="Select for merging" style="width: 20px; height: 20px; margin-right: 10px;">
+                        <span>Select</span>
+                    </label>
+                    <img src="${task.screenshot || dbService.defaultScreenshot}" 
+                         alt="Task Screenshot" 
+                         class="task-screenshot"
+                         style="width: 50px; height: 50px; object-fit: contain; margin-right: 10px; cursor: pointer;"
+                         title="Click to view full screenshot">
+                    <strong>${task.name}</strong>
+                </div>
                 <div class="task-details">
                     <span>Project: ${task.project}</span> |
                     <span>Category: ${task.category}</span> |
@@ -357,11 +463,26 @@ class BackgroundService {
                 <div>Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
                 ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
                 <div class="task-uuid">ID: ${task.uuid}</div>
-            </div>
-            <div class="task-actions">
-                <label><input type="checkbox" ${task.billable ? 'checked' : ''} onclick="event.stopPropagation();"> Billable</label>
+                <div class="task-actions">
+                    <label class="billable-checkbox">
+                        <input type="checkbox" ${task.billable ? 'checked' : ''} onclick="event.stopPropagation();">
+                        <span>Billable</span>
+                    </label>
+                </div>
             </div>
         `;
+
+        // Add click handler for screenshot preview
+        const screenshotImg = taskElement.querySelector('.task-screenshot');
+        screenshotImg.addEventListener('click', () => {
+            this.showScreenshotPreview(task.screenshot || dbService.defaultScreenshot);
+        });
+
+        // Add click handler for task selection
+        taskElement.querySelector('.task-checkbox').addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.toggleTaskSelection(task.uuid);
+        });
         
         // Add to beginning of list
         if (taskContainer.firstChild) {
@@ -369,11 +490,41 @@ class BackgroundService {
         } else {
             taskContainer.appendChild(taskElement);
         }
+    }
 
-        // Keep only last 10 tasks
-        while (taskContainer.children.length > 10) {
-            taskContainer.removeChild(taskContainer.lastChild);
-        }
+    showScreenshotPreview(screenshot) {
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            cursor: pointer;
+        `;
+
+        const img = document.createElement('img');
+        img.src = screenshot;
+        img.style.cssText = `
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+        `;
+
+        modal.appendChild(img);
+        document.body.appendChild(modal);
+
+        modal.addEventListener('click', () => {
+            document.body.removeChild(modal);
+        });
     }
 
     scheduleNextCapture() {

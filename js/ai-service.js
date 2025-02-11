@@ -1,19 +1,28 @@
-import { CONFIG, getApiKey } from './config.js';
+import { CONFIG } from './config.js';
 import { errorService } from './error-service.js';
+import { aiProviderService } from './ai-provider-service.js';
+import { dbService } from './db-service.js';
 
 class AIService {
     constructor() {
-        this.apiKey = null;
+        this.initialized = false;
     }
 
     async initialize() {
         try {
-            this.apiKey = await getApiKey();
-            if (!this.apiKey) {
-                throw new Error('API key not found. Please set up your OpenAI API key.');
+            await aiProviderService.initialize();
+            // Only mark as initialized if the provider service is fully initialized
+            this.initialized = aiProviderService.isInitialized;
+            if (this.initialized) {
+                errorService.info('AI Service initialized successfully');
+            } else {
+                errorService.warn('AI Service partially initialized - waiting for configuration');
             }
-            errorService.info('AI Service initialized successfully');
         } catch (error) {
+            if (error.message && error.message.includes('API key required')) {
+                errorService.warn('AI Service requires configuration');
+                return;
+            }
             errorService.error('Failed to initialize AI Service', error);
             throw error;
         }
@@ -21,75 +30,19 @@ class AIService {
 
     async analyzeScreenshot(base64Image) {
         try {
-            // Convert data URL to base64 string
-            const base64Data = base64Image.split(',')[1];
+            if (!this.initialized) {
+                throw new Error('AI Service not initialized - please configure settings first');
+            }
+
+            errorService.debug('Preparing Vision API request');
+            const description = await aiProviderService.callVisionAPI(base64Image);
             
-            errorService.debug('Preparing Vision API request', {
-                model: CONFIG.VISION_API.model,
-                endpoint: CONFIG.VISION_API.endpoint
-            });
-
-            const requestBody = {
-                model: CONFIG.VISION_API.model,
-                messages: [
-                    {
-                        role: "user",
-                        content: [
-                            {
-                                type: "text",
-                                text: "What is in this image? Analyze this screenshot and describe what task the user appears to be working on. Focus on: 1) Open applications 2) Visible content 3) Any indicators of the type of work being performed."
-                            },
-                            {
-                                type: "image_url",
-                                image_url: {
-                                    url: `data:image/jpeg;base64,${base64Data}`
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens: CONFIG.VISION_API.max_tokens
-            };
-
-            errorService.debug('Sending Vision API request', {
-                endpoint: CONFIG.VISION_API.endpoint,
-                requestSize: base64Data.length,
-                model: CONFIG.VISION_API.model
-            });
-
-            const response = await fetch(CONFIG.VISION_API.endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
-                body: JSON.stringify(requestBody)
-            });
-
-            const responseData = await response.json();
-
-            if (!response.ok) {
-                errorService.error('Vision API request failed', null, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: responseData.error
-                });
-                throw new Error(`Vision API Error: ${responseData.error?.message || response.statusText}`);
-            }
-
             errorService.debug('Vision API response received', {
-                status: response.status,
-                responseSize: JSON.stringify(responseData).length
+                descriptionLength: description.length
             });
 
-            return responseData.choices[0].message.content;
+            return description;
         } catch (error) {
-            if (error.message.includes('API key')) {
-                errorService.error('Invalid or missing API key', error, {
-                    keyLength: this.apiKey ? this.apiKey.length : 0
-                });
-                throw new Error('Invalid or missing API key. Please check your OpenAI API key.');
-            }
             errorService.error('Failed to analyze screenshot', error);
             throw error;
         }
@@ -97,71 +50,77 @@ class AIService {
 
     async classifyTask(description) {
         try {
-            errorService.debug('Preparing LLM API request', {
-                model: CONFIG.LLM_API.model,
-                endpoint: CONFIG.LLM_API.endpoint
-            });
-
-            const requestBody = {
-                model: CONFIG.LLM_API.model,
-                messages: [
-                    {
-                        role: "user",
-                        content: `Classify this task description into one of these categories: ${CONFIG.TASK_CATEGORIES.join(', ')}. Return only a JSON object in this format: {"task": "category", "confidence": 0.XX, "description": "brief explanation"}. Description: ${description}`
-                    }
-                ],
-                max_tokens: CONFIG.LLM_API.max_tokens,
-                response_format: { type: "json_object" }
-            };
-
-            errorService.debug('Sending LLM API request', {
-                endpoint: CONFIG.LLM_API.endpoint,
-                inputLength: description.length,
-                categories: CONFIG.TASK_CATEGORIES.length
-            });
-
-            const response = await fetch(CONFIG.LLM_API.endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
-                body: JSON.stringify(requestBody)
-            });
-
-            const responseData = await response.json();
-
-            if (!response.ok) {
-                errorService.error('LLM API request failed', null, {
-                    status: response.status,
-                    statusText: response.statusText,
-                    error: responseData.error
-                });
-                throw new Error(`LLM API Error: ${responseData.error?.message || response.statusText}`);
+            if (!this.initialized) {
+                throw new Error('AI Service not initialized - please configure settings first');
             }
 
-            errorService.debug('LLM API response received', {
-                status: response.status,
-                responseSize: JSON.stringify(responseData).length
-            });
+            errorService.debug('Preparing task classification request');
 
-            const result = JSON.parse(responseData.choices[0].message.content);
+            // Get available projects and their recent tasks
+            const projects = JSON.parse(localStorage.getItem('projects')) || [];
+            const tasks = await dbService.getRecentTasks(50); // Get last 50 tasks for context
+
+            // Create rich project context
+            const projectInfo = projects.map(p => {
+                const projectTasks = tasks.filter(t => t.project === p.id);
+                const recentTaskNames = projectTasks.slice(0, 5).map(t => t.name);
+                const taskCategories = [...new Set(projectTasks.map(t => t.category))];
+                
+                return `Project: ${p.name} (ID: ${p.id})
+                Description: ${p.description || 'No description provided'}
+                Type: ${p.defaultBillable ? 'Billable Work' : 'Non-billable Work'}
+                Rate: ${p.billableRate > 0 ? `$${p.billableRate}/hour` : 'Non-billable'}
+                Supported Categories: ${p.categories ? p.categories.join(', ') : 'All Categories'}
+                Common Task Categories: ${taskCategories.join(', ') || 'None'}
+                Recent Tasks: ${recentTaskNames.join(', ') || 'None'}
+                Task Count: ${projectTasks.length} tasks in the last 50 entries`;
+            }).join('\n\n');
+
+            const prompt = `Analyze this task description and provide the following:
+1. Classify it into one of these categories: ${CONFIG.TASK_CATEGORIES.join(', ')}
+2. Suggest which project it belongs to based on the following project information:
+
+${projectInfo}
+
+Consider:
+- Project descriptions and their relevance to the task
+- Supported and commonly used categories
+- Similar tasks from project history
+- Project type (billable vs non-billable)
+- Project names and their relevance to the task
+- Historical task volume and patterns
+
+Return only a JSON object in this format: {
+    "task": "category",
+    "project": "project_id",
+    "confidence": 0.XX,
+    "description": "brief explanation of why this project was chosen, including which factors were most influential"
+}
+
+Note: Use the project ID from the parentheses, not the project name.
+If unsure about the project, use "default". Description: ${description}`;
             
-            // Validate result format
-            if (!result.task || !result.confidence || !result.description) {
-                errorService.warn('Invalid LLM response format', {
+            const result = await aiProviderService.callTextAPI(prompt);
+
+            // Validate result format and ensure project ID exists
+            if (!result.task || !result.confidence || !result.description || !result.project) {
+                errorService.warn('Invalid classification response format', {
                     response: result
                 });
+                result.project = 'default'; // Fallback to default project
+            } else {
+                // Verify the project ID exists
+                const projectExists = projects.some(p => p.id === result.project);
+                if (!projectExists) {
+                    errorService.warn('Invalid project ID returned by AI', {
+                        projectId: result.project
+                    });
+                    result.project = 'default';
+                }
             }
 
             return result;
         } catch (error) {
-            if (error.message.includes('API key')) {
-                errorService.error('Invalid or missing API key', error, {
-                    keyLength: this.apiKey ? this.apiKey.length : 0
-                });
-                throw new Error('Invalid or missing API key. Please check your OpenAI API key.');
-            }
             errorService.error('Failed to classify task', error);
             throw error;
         }
