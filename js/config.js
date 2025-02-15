@@ -77,8 +77,9 @@ const CONFIG = {
 
     // Database Configuration
     DB_NAME: 'taskshot_db',
-    DB_VERSION: 1,
+    DB_VERSION: 2,
     TASK_STORE_NAME: 'tasks',
+    PROJECT_STORE_NAME: 'projects',
     SETTINGS_STORE_NAME: 'settings'
 };
 

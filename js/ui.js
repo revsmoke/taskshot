@@ -12,18 +12,7 @@ let projectListBoundary = null;
 let settingsBoundary = null;
 
 // Project Management
-let projects = JSON.parse(localStorage.getItem('projects')) || [
-    { 
-        id: generateUUID(),
-        name: 'Default',
-        color: '#3498db', 
-        billableRate: 0, 
-        defaultBillable: true,
-        description: 'Default project for unclassified tasks',
-        categories: ['Development', 'Research', 'Meeting', 'Planning'],
-        isDefaultProject: true
-    }
-];
+let projects = []; // Will be loaded from IndexedDB
 
 // Task Templates Management
 let templates = JSON.parse(localStorage.getItem('task_templates')) || [];
@@ -135,8 +124,32 @@ async function initializeProjectList() {
         throw new Error('Project list container not found');
     }
     
-    // Load and display projects
-    updateProjectLists();
+    try {
+        // Load projects from IndexedDB
+        projects = await dbService.getAllProjects();
+        
+        // If no projects exist, create default project
+        if (projects.length === 0) {
+            const defaultProject = {
+                id: crypto.randomUUID(),
+                name: 'Default',
+                color: '#3498db',
+                billableRate: 0,
+                defaultBillable: true,
+                description: 'Default project for unclassified tasks',
+                categories: ['Development', 'Research', 'Meeting', 'Planning'],
+                isDefaultProject: true
+            };
+            await dbService.addProject(defaultProject);
+            projects = [defaultProject];
+        }
+        
+        // Update UI with loaded projects
+        await updateProjectLists();
+    } catch (error) {
+        errorService.error('Failed to initialize project list', error);
+        throw error;
+    }
 }
 
 async function initializeSettings() {
@@ -201,27 +214,18 @@ export async function addTask(task) {
     }
 }
 
-export async function saveProject(project) {
-    if (!projectListBoundary) {
-        throw new Error('UI not initialized');
-    }
+async function saveProject(project) {
     try {
-        await projectListBoundary.captureError(async () => {
-            // Validate project data
-            if (!project || !project.name) {
-                throw new Error('Invalid project data');
-            }
-
-            const result = await dbService.saveProject(project);
-            if (!result) {
-                throw new Error('Failed to save project to database');
-            }
-
-            await updateProjectList();
-        });
+        // If project has no id, it's a new project
+        if (!project.id) {
+            project.id = crypto.randomUUID();
+            await dbService.addProject(project);
+        } else {
+            await dbService.updateProject(project);
+        }
+        await updateProjectLists();
     } catch (error) {
-        errorService.error('Failed to save project', error, { project });
-        throw error;
+        errorService.error('Failed to save project', error);
     }
 }
 
@@ -339,8 +343,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ---------------------
 
 function saveProjects() {
-    localStorage.setItem('projects', JSON.stringify(projects));
-    updateProjectLists();
+    // This function is no longer needed as projects are saved individually
+    // Keeping it for backward compatibility, but it's a no-op now
 }
 
 function saveTemplates() {
@@ -354,36 +358,32 @@ function saveCategories() {
     updateCategorySelectors();
 }
 
-function updateProjectLists() {
-    // Update project list display
-    const projectList = document.getElementById('projectList');
-    if (!projectList) return;
-    projectList.innerHTML = projects.map(project => `
-        <div class="project-item" style="background-color: ${project.color}20; border-left: 4px solid ${project.color}">
-            <span>${project.name}</span>
-            <div class="project-actions">
-                <button class="btn" onclick="editProject('${project.id}')">Edit</button>
-                ${project.id !== 'default' ? `<button class="btn btn-danger" onclick="deleteProject('${project.id}')">Delete</button>` : ''}
-            </div>
-        </div>
-    `).join('');
+async function updateProjectLists() {
+    try {
+        const projectList = document.getElementById('projectList');
+        const projectSelects = document.querySelectorAll('select[id$="Project"]');
+        
+        // Update project list
+        if (projectList) {
+            projectList.innerHTML = projects.map(project => `
+                <div class="project-item" style="background-color: ${project.color}20">
+                    <span>${project.name}</span>
+                    <button onclick="openProjectModal('${project.id}')" class="btn">Edit</button>
+                </div>
+            `).join('');
+        }
 
-    // Update project selectors
-    const projectOptions = projects.map(project => 
-        `<option value="${project.id}">${project.name}</option>`
-    ).join('');
-    
-    const projectFilter = document.getElementById('projectFilter');
-    const defaultProjectSelect = document.getElementById('defaultProject');
-    if (projectFilter) {
-      projectFilter.innerHTML = '<option value="">All Projects</option>' + projectOptions;
-    }
-    if (defaultProjectSelect) {
-      defaultProjectSelect.innerHTML = projectOptions;
-    }
-    const taskProject = document.getElementById('taskProject');
-    if (taskProject) {
-      taskProject.innerHTML = projectOptions;
+        // Update all project select dropdowns
+        projectSelects.forEach(select => {
+            const currentValue = select.value;
+            select.innerHTML = projects.map(project => 
+                `<option value="${project.id}" ${project.id === currentValue ? 'selected' : ''}>
+                    ${project.name}
+                </option>`
+            ).join('');
+        });
+    } catch (error) {
+        errorService.error('Failed to update project lists', error);
     }
 }
 
@@ -430,47 +430,64 @@ function updateCategorySelectors() {
 }
 
 // Project Modal Handling
-function openProjectModal(projectId = null) {
-    const modal = document.getElementById('projectModal');
-    const form = document.getElementById('projectForm');
-    const nameInput = document.getElementById('projectName');
-    const colorInput = document.getElementById('projectColor');
-    const billableRateInput = document.getElementById('billableRate');
-    const defaultBillableInput = document.getElementById('defaultBillable');
-    const descriptionInput = document.getElementById('projectDescription');
-    const categoriesInput = document.getElementById('projectCategories');
+async function openProjectModal(projectId = null) {
+    try {
+        const modal = document.getElementById('projectModal');
+        const form = document.getElementById('projectForm');
+        const nameInput = document.getElementById('projectName');
+        const descInput = document.getElementById('projectDescription');
+        const categoriesSelect = document.getElementById('projectCategories');
+        const colorInput = document.getElementById('projectColor');
+        const rateInput = document.getElementById('billableRate');
+        const billableCheck = document.getElementById('defaultBillable');
 
-    // Update categories dropdown
-    const categoryOptions = categories.map(category => 
-        `<option value="${category.id}">${category.name}</option>`
-    ).join('');
-    categoriesInput.innerHTML = categoryOptions;
-
-    // If editing existing project
-    if (projectId) {
-        const project = projects.find(p => p.id === projectId);
-        if (project) {
-            nameInput.value = project.name;
-            colorInput.value = project.color || '#3498db';
-            billableRateInput.value = project.billableRate || '';
-            defaultBillableInput.checked = project.defaultBillable || false;
-            descriptionInput.value = project.description || '';
-            
-            // Set selected categories
-            if (project.categories && Array.isArray(project.categories)) {
-                Array.from(categoriesInput.options).forEach(option => {
-                    option.selected = project.categories.includes(option.value);
-                });
-            }
-            form.dataset.editId = projectId;
-        }
-    } else {
-        // New project
+        // Clear previous form data
         form.reset();
-        delete form.dataset.editId;
-    }
 
-    modal.style.display = 'block';
+        if (projectId) {
+            // Load existing project data
+            const project = projects.find(p => p.id === projectId);
+            if (project) {
+                nameInput.value = project.name;
+                descInput.value = project.description || '';
+                colorInput.value = project.color || '#3498db';
+                rateInput.value = project.billableRate || 0;
+                billableCheck.checked = project.defaultBillable || false;
+                
+                // Set selected categories
+                if (project.categories) {
+                    Array.from(categoriesSelect.options).forEach(option => {
+                        option.selected = project.categories.includes(option.value);
+                    });
+                }
+            }
+        }
+
+        // Show modal
+        modal.style.display = 'block';
+        document.getElementById('modalOverlay').style.display = 'block';
+
+        // Handle form submission
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const selectedCategories = Array.from(categoriesSelect.selectedOptions).map(opt => opt.value);
+            
+            const projectData = {
+                id: projectId || crypto.randomUUID(),
+                name: nameInput.value,
+                description: descInput.value,
+                categories: selectedCategories,
+                color: colorInput.value,
+                billableRate: parseFloat(rateInput.value) || 0,
+                defaultBillable: billableCheck.checked
+            };
+
+            await saveProject(projectData);
+            closeProjectModal();
+        };
+    } catch (error) {
+        errorService.error('Failed to open project modal', error);
+    }
 }
 
 function closeProjectModal() {
@@ -682,6 +699,7 @@ const addExportButton = () => {
                 Category: category,
                 Task: name,
                 Description: description,
+                'Analysis Description': task.querySelector('.task-analysis-content')?.textContent || '',
                 Billable: billable ? 'Yes' : 'No',
                 Confidence: confidence.toFixed(2),
                 Screenshot: screenshot
@@ -700,6 +718,7 @@ const addExportButton = () => {
             'Category',
             'Task',
             'Description',
+            'Analysis Description',
             'Billable',
             'Confidence',
             'Screenshot'
@@ -1267,22 +1286,50 @@ window.editCategory = (categoryId) => {
 };
 
 window.deleteProject = async (projectId) => {
-    const project = projects.find(p => p.id === projectId);
-    if (project && project.isDefaultProject) {
-        alert('The default project cannot be deleted.');
-        return;
-    }
-    
-    if (confirm('Are you sure you want to delete this project? This cannot be undone.')) {
-        projects = projects.filter(p => p.id !== projectId);
-        saveProjects();
-        // Update any tasks that were using this project to use the default project
+    try {
+        const project = projects.find(p => p.id === projectId);
+        if (!project) {
+            throw new Error('Project not found');
+        }
+
+        if (project.isDefaultProject) {
+            alert('The default project cannot be deleted.');
+            return;
+        }
+
+        if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) {
+            return;
+        }
+
+        // Get default project for reassigning tasks
         const defaultProject = projects.find(p => p.isDefaultProject);
+        if (!defaultProject) {
+            throw new Error('Default project not found');
+        }
+
+        // Delete project from database
+        await dbService.deleteProject(projectId);
+
+        // Update tasks that were using this project
         const tasks = document.querySelectorAll(`.task-item[data-project="${projectId}"]`);
-        tasks.forEach(task => {
-            task.dataset.project = defaultProject.id;
-            task.querySelector('.task-project').textContent = `Project: ${defaultProject.name}`;
+        tasks.forEach(async (taskElement) => {
+            const taskId = taskElement.dataset.taskId;
+            const task = await dbService.getTask(taskId);
+            if (task) {
+                task.project = defaultProject.id;
+                await dbService.updateTask(task);
+                taskElement.dataset.project = defaultProject.id;
+                taskElement.querySelector('.task-project').textContent = `Project: ${defaultProject.name}`;
+            }
         });
+
+        // Remove project from local array
+        projects = projects.filter(p => p.id !== projectId);
+
+        // Update UI
+        await updateProjectLists();
+    } catch (error) {
+        errorService.error('Failed to delete project', error);
     }
 };
 
@@ -1383,14 +1430,14 @@ function formatMarkdown(text) {
   
     // --- 8) PARAGRAPHS ---
     // (a) Split on blank lines => separate <p> blocks
-    // We’ll do this by first trimming extra spaces and ensuring consistent newlines
+    // We'll do this by first trimming extra spaces and ensuring consistent newlines
     html = html.replace(/\r\n/g, '\n');
     html = html.replace(/\n{2,}/g, '\n\n'); // unify multiple blank lines into two
     const paragraphs = html.split(/\n\s*\n/);
     html = paragraphs
       .map(par => {
         // If this chunk already contains block-level tags (like <h1>, <ul>, <ol>, etc.), 
-        // or if it’s entirely a list or blockquote, we might not want to wrap in <p>.
+        // or if it's entirely a list or blockquote, we might not want to wrap in <p>.
         // A naive approach is to check if it starts with < (block-level) or has <ul>, <ol>, <h, <blockquote>, <pre>, <hr>, etc.
         if (/^(<h\d|<ul>|<ol>|<blockquote>|<pre>|<table>|<hr>)/i.test(par.trim())) {
           return par;

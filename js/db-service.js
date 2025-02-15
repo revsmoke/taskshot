@@ -9,38 +9,156 @@ class DBService {
 
     async initialize() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION + 1); // Increment version for schema update
+            // Check if IndexedDB is available
+            if (!window.indexedDB) {
+                const error = new Error('IndexedDB is not supported in this browser');
+                error.code = 'DB_NOT_SUPPORTED';
+                reject(error);
+                return;
+            }
 
-            request.onerror = () => {
-                reject(new Error('Failed to open database'));
+            // First try to open the database
+            this._createNewDatabase(resolve, reject, true);
+        });
+    }
+
+    _createNewDatabase(resolve, reject, isInitialAttempt = false) {
+        try {
+            const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
+
+            request.onerror = (event) => {
+                const error = event.target.error;
+                console.error('Database error:', {
+                    name: error.name,
+                    message: error.message,
+                    code: error.code
+                });
+
+                // If this is our first attempt and we got an error, try deleting and recreating
+                if (isInitialAttempt) {
+                    console.log('Initial database open failed, attempting to delete and recreate...');
+                    const deleteRequest = indexedDB.deleteDatabase(CONFIG.DB_NAME);
+                    
+                    deleteRequest.onsuccess = () => {
+                        console.log('Successfully deleted database, recreating...');
+                        this._createNewDatabase(resolve, reject, false);
+                    };
+
+                    deleteRequest.onerror = () => {
+                        console.error('Failed to delete database:', deleteRequest.error);
+                        reject(new Error('Failed to initialize database: Could not delete existing database'));
+                    };
+
+                    deleteRequest.onblocked = () => {
+                        console.warn('Database deletion blocked. Please close other tabs with this site open.');
+                        // Try to proceed with creation anyway
+                        this._createNewDatabase(resolve, reject, false);
+                    };
+                } else {
+                    reject(new Error('Failed to open database: ' + error.message));
+                }
+            };
+
+            request.onblocked = (event) => {
+                console.warn('Database opening blocked. Please close other tabs with this site open.');
+                // Continue anyway as the operation might still succeed
             };
 
             request.onsuccess = (event) => {
                 this.db = event.target.result;
-                resolve();
+                
+                this.db.onerror = (event) => {
+                    console.error('Database error:', event.target.error);
+                };
+
+                // Verify that all required stores exist
+                const storeNames = Array.from(this.db.objectStoreNames);
+                const requiredStores = [CONFIG.TASK_STORE_NAME, CONFIG.PROJECT_STORE_NAME];
+                
+                const missingStores = requiredStores.filter(store => !storeNames.includes(store));
+                
+                if (missingStores.length > 0) {
+                    console.log('Missing stores:', missingStores);
+                    // If stores are missing, we need to close and reopen with a new version
+                    const currentVersion = this.db.version;
+                    this.db.close();
+                    
+                    const newVersion = currentVersion + 1;
+                    console.log('Upgrading database to version:', newVersion);
+                    const reopenRequest = indexedDB.open(CONFIG.DB_NAME, newVersion);
+                    
+                    reopenRequest.onupgradeneeded = (event) => this._handleUpgrade(event);
+                    reopenRequest.onsuccess = (event) => {
+                        this.db = event.target.result;
+                        console.log('Database upgraded successfully');
+                        resolve();
+                    };
+                    reopenRequest.onerror = (event) => {
+                        const error = new Error('Failed to upgrade database: ' + event.target.error.message);
+                        error.originalError = event.target.error;
+                        reject(error);
+                    };
+                } else {
+                    console.log('All required stores exist');
+                    resolve();
+                }
             };
 
             request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                
-                // Create or update tasks store
-                if (!db.objectStoreNames.contains(CONFIG.TASK_STORE_NAME)) {
-                    const store = db.createObjectStore(CONFIG.TASK_STORE_NAME, {
-                        keyPath: 'uuid'
-                    });
-                    
-                    // Create indexes for querying
-                    store.createIndex('timestamp', 'timestamp', { unique: false });
-                    store.createIndex('task', 'task', { unique: false });
-                } else {
-                    const store = event.target.transaction.objectStore(CONFIG.TASK_STORE_NAME);
-                    // Add screenshot field if it doesn't exist
-                    if (!store.indexNames.contains('screenshot')) {
-                        store.createIndex('screenshot', 'screenshot', { unique: false });
-                    }
-                }
+                console.log('Database upgrade needed');
+                this._handleUpgrade(event);
             };
-        });
+        } catch (error) {
+            console.error('Unexpected error during database creation:', error);
+            reject(error);
+        }
+    }
+
+    _handleUpgrade(event) {
+        try {
+            console.log('Handling database upgrade');
+            const db = event.target.result;
+            
+            // Create tasks store if it doesn't exist
+            if (!db.objectStoreNames.contains(CONFIG.TASK_STORE_NAME)) {
+                console.log('Creating tasks store');
+                const taskStore = db.createObjectStore(CONFIG.TASK_STORE_NAME, {
+                    keyPath: 'uuid'
+                });
+                taskStore.createIndex('timestamp', 'timestamp', { unique: false });
+                taskStore.createIndex('task', 'task', { unique: false });
+                taskStore.createIndex('screenshot', 'screenshot', { unique: false });
+            }
+
+            // Create projects store if it doesn't exist
+            if (!db.objectStoreNames.contains(CONFIG.PROJECT_STORE_NAME)) {
+                console.log('Creating projects store');
+                const projectStore = db.createObjectStore(CONFIG.PROJECT_STORE_NAME, {
+                    keyPath: 'id'
+                });
+                projectStore.createIndex('name', 'name', { unique: false });
+                
+                // Add default project
+                const defaultProject = {
+                    id: crypto.randomUUID(),
+                    name: 'Default',
+                    color: '#3498db',
+                    billableRate: 0,
+                    defaultBillable: true,
+                    description: 'Default project for unclassified tasks',
+                    categories: ['Development', 'Research', 'Meeting', 'Planning'],
+                    isDefaultProject: true
+                };
+
+                // Use the transaction from the upgrade event
+                projectStore.add(defaultProject);
+                console.log('Added default project');
+            }
+            console.log('Database upgrade completed');
+        } catch (error) {
+            console.error('Error during database upgrade:', error);
+            throw error;
+        }
     }
 
     async addTask(task) {
@@ -114,6 +232,72 @@ class DBService {
             const request = store.delete(taskId);
 
             request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getAllProjects() {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([CONFIG.PROJECT_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(CONFIG.PROJECT_STORE_NAME);
+            const request = store.getAll();
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async addProject(project) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([CONFIG.PROJECT_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(CONFIG.PROJECT_STORE_NAME);
+            const request = store.add(project);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async updateProject(project) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([CONFIG.PROJECT_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(CONFIG.PROJECT_STORE_NAME);
+            const request = store.put(project);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async deleteProject(projectId) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([CONFIG.PROJECT_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(CONFIG.PROJECT_STORE_NAME);
+            const request = store.delete(projectId);
+
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getDefaultProject() {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([CONFIG.PROJECT_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(CONFIG.PROJECT_STORE_NAME);
+            const request = store.openCursor();
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    if (cursor.value.isDefaultProject) {
+                        resolve(cursor.value);
+                        return;
+                    }
+                    cursor.continue();
+                } else {
+                    resolve(null);
+                }
+            };
             request.onerror = () => reject(request.error);
         });
     }
