@@ -182,10 +182,11 @@ async function setupEventListeners() {
     const projectFilter = document.getElementById('projectFilter');
     const dateFilter = document.getElementById('dateFilter');
     const clearFiltersButton = document.getElementById('clearFilters');
+    const defaultProjectForm = document.getElementById('defaultProjectForm');
 
     if (!startButton || !pauseButton || !settingsForm || !intervalInput || 
         !addProjectButton || !addManualTaskButton || !projectFilter || 
-        !dateFilter || !clearFiltersButton) {
+        !dateFilter || !clearFiltersButton || !defaultProjectForm) {
         throw new Error('Required UI elements not found');
     }
 
@@ -211,6 +212,43 @@ async function setupEventListeners() {
         if (interval > 0) {
             backgroundService.setCaptureInterval(interval);
             localStorage.setItem('capture_interval', interval);
+        }
+    });
+
+    // Handle default project form submission
+    defaultProjectForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const defaultProjectSelect = document.getElementById('defaultProject');
+        const selectedProjectId = defaultProjectSelect.value;
+        
+        try {
+            // Find the selected project
+            const selectedProject = projects.find(p => p.id === selectedProjectId);
+            if (!selectedProject) {
+                throw new Error('Selected project not found');
+            }
+
+            // Update all projects to not be default
+            for (const project of projects) {
+                if (project.id !== selectedProjectId) {
+                    project.isDefaultProject = false;
+                    await dbService.updateProject(project);
+                }
+            }
+
+            // Set the selected project as default
+            selectedProject.isDefaultProject = true;
+            await dbService.updateProject(selectedProject);
+
+            // Reload projects from database to ensure we have the latest data
+            projects = await dbService.getAllProjects();
+
+            // Update UI
+            await updateProjectLists();
+            errorService.info('Default project updated successfully');
+        } catch (error) {
+            errorService.error('Failed to update default project', error);
+            alert('Failed to update default project: ' + error.message);
         }
     });
 
@@ -402,14 +440,23 @@ async function updateProjectLists() {
             projectList.innerHTML = projects.map(project => `
                 <div class="project-item" style="background-color: ${project.color}20">
                     <span>${project.name}</span>
-                    <button onclick="openProjectModal('${project.id}')" class="btn">Edit</button>
+                    <div class="project-actions">
+                        <button onclick="openProjectModal('${project.id}')" class="btn">Edit</button>
+                        ${!project.isDefaultProject ? `<button onclick="deleteProject('${project.id}')" class="btn btn-danger">Delete</button>` : ''}
+                    </div>
                 </div>
             `).join('');
         }
 
+        // Find the default project
+        const defaultProject = projects.find(p => p.isDefaultProject);
+
         // Update all project select dropdowns
         projectSelects.forEach(select => {
-            const currentValue = select.value;
+            // For the defaultProject select, we want to select the project with isDefaultProject: true
+            // For other selects, maintain their current selection
+            const currentValue = select.id === 'defaultProject' && defaultProject ? defaultProject.id : select.value;
+            
             select.innerHTML = projects.map(project => 
                 `<option value="${project.id}" ${project.id === currentValue ? 'selected' : ''}>
                     ${project.name}
@@ -892,32 +939,50 @@ window.openCategoryModal = (categoryId = null) => {
         delete form.dataset.editId;
     }
     
-    modal.style.display = 'block';
-};
+    // Show modal using showModal()
+    modal.showModal();
 
-window.closeCategoryModal = () => {
-    document.getElementById('categoryModal').style.display = 'none';
-};
+    // Handle form submission
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        const categoryData = {
+            id: form.dataset.editId || form.querySelector('#categoryName').value.toLowerCase().replace(/\s+/g, '_'),
+            name: form.querySelector('#categoryName').value,
+            color: form.querySelector('#categoryColor').value
+        };
 
-// Category Form Handling
-document.getElementById('categoryForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const categoryData = {
-        id: form.dataset.editId || form.querySelector('#categoryName').value.toLowerCase().replace(/\s+/g, '_'),
-        name: form.querySelector('#categoryName').value,
-        color: form.querySelector('#categoryColor').value
+        if (form.dataset.editId) {
+            categories = categories.map(c => c.id === form.dataset.editId ? categoryData : c);
+        } else {
+            categories.push(categoryData);
+        }
+
+        saveCategories();
+        modal.close('save');
     };
 
-    if (form.dataset.editId) {
-        categories = categories.map(c => c.id === form.dataset.editId ? categoryData : c);
-    } else {
-        categories.push(categoryData);
-    }
+    // Handle cancel button
+    const cancelButton = form.querySelector('button[value="cancel"]');
+    cancelButton.onclick = () => modal.close('cancel');
 
-    saveCategories();
-    closeCategoryModal();
-});
+    // Handle dialog close
+    modal.addEventListener('close', () => {
+        if (modal.returnValue === 'save') {
+            // Category was saved, already handled in form submit
+        } else {
+            // Modal was cancelled or closed
+            form.reset();
+        }
+    }, { once: true });
+};
+
+// Make closeCategoryModal available globally
+window.closeCategoryModal = () => {
+    const modal = document.getElementById('categoryModal');
+    if (modal) {
+        modal.close('cancel');
+    }
+};
 
 // Task Merging
 let selectedTasks = new Set();
@@ -1070,9 +1135,7 @@ window.useTemplate = (templateId) => {
 
 // Export addTaskToUI function and make it available globally
 export function addTaskToUI(task) {
-    //console.log('addTaskToUI', task);
     const taskContainer = document.getElementById('taskContainer');
-    //console.log('taskContainer', taskContainer);
     if (!taskContainer) return;
     const taskElement = document.createElement('div');
     taskElement.className = 'task-item';
@@ -1085,7 +1148,7 @@ export function addTaskToUI(task) {
     taskElement.dataset.timestamp = task.timestamp;
     taskElement.dataset.duration = task.duration;
     taskElement.dataset.screenshot = task.screenshot || dbService.defaultScreenshot;
-    taskElement.dataset.classificationPrompt = task.classification_prompt || '';
+    taskElement.dataset.classificationPrompt = task.classification_prompt || task.prompt || '';
     
     // Format times for display
     const startTime = new Date(task.startTime).toLocaleTimeString();
@@ -1120,6 +1183,22 @@ export function addTaskToUI(task) {
                 <summary>View Detailed Analysis</summary>
                 <div class="task-analysis-content">${formatMarkdown(task.analysis_description)}</div>
             </details>` : ''}
+            ${task.classification_prompt || task.prompt ? `
+            <details class="task-analysis">
+                <summary>View Classification Prompt</summary>
+                <div class="task-analysis-content">${formatMarkdown(task.classification_prompt || task.prompt)}</div>
+            </details>` : ''}
+            ${task.context ? `
+            <details class="task-analysis">
+                <summary>View Classification Context</summary>
+                <div class="task-analysis-content">
+                    <h4>Context at ${new Date(task.context.timestamp).toLocaleString()}</h4>
+                    <h5>Recent Task History:</h5>
+                    ${formatMarkdown(task.context.taskHistory)}
+                    <h5>Project Information:</h5>
+                    ${formatMarkdown(task.context.projectInfo)}
+                </div>
+            </details>` : ''}
             <div class="task-uuid">ID: ${task.uuid}</div>
             <div class="task-actions">
                 <label class="billable-checkbox">
@@ -1143,19 +1222,6 @@ export function addTaskToUI(task) {
     });
     
     taskContainer.appendChild(taskElement);
-    //taskContainer.prepend(taskElement);
-     // Add to beginning of list
-     /* if (taskContainer.firstChild) {
-        console.log('taskContainer.firstChild', taskContainer.firstChild);
-        taskContainer.insertBefore(taskElement, taskContainer.firstChild);
-    } else {
-        taskContainer.appendChild(taskElement);
-    } */
-
-    // Keep only last 10 tasks
-   // while (taskContainer.children.length > 10) {
-        //taskContainer.removeChild(taskContainer.lastChild);
-   //}
 }
 
 // Make addTaskToUI available globally
@@ -1331,18 +1397,27 @@ window.deleteProject = async (projectId) => {
             return;
         }
 
-        // Get default project for reassigning tasks
-        const defaultProject = projects.find(p => p.isDefaultProject);
+        // Get or create default project for reassigning tasks
+        let defaultProject = projects.find(p => p.isDefaultProject);
+        
         if (!defaultProject) {
-            throw new Error('Default project not found');
+            defaultProject = {
+                id: crypto.randomUUID(),
+                name: 'Default',
+                color: '#3498db',
+                billableRate: 0,
+                defaultBillable: true,
+                description: 'Default project for unclassified tasks',
+                categories: ['Development', 'Research', 'Meeting', 'Planning'],
+                isDefaultProject: true
+            };
+            await dbService.addProject(defaultProject);
+            projects.push(defaultProject);
         }
-
-        // Delete project from database
-        await dbService.deleteProject(projectId);
 
         // Update tasks that were using this project
         const tasks = document.querySelectorAll(`.task-item[data-project="${projectId}"]`);
-        tasks.forEach(async (taskElement) => {
+        for (const taskElement of tasks) {
             const taskId = taskElement.dataset.taskId;
             const task = await dbService.getTask(taskId);
             if (task) {
@@ -1351,7 +1426,10 @@ window.deleteProject = async (projectId) => {
                 taskElement.dataset.project = defaultProject.id;
                 taskElement.querySelector('.task-project').textContent = `Project: ${defaultProject.name}`;
             }
-        });
+        }
+
+        // Delete project from database
+        await dbService.deleteProject(projectId);
 
         // Remove project from local array
         projects = projects.filter(p => p.id !== projectId);
@@ -1360,6 +1438,7 @@ window.deleteProject = async (projectId) => {
         await updateProjectLists();
     } catch (error) {
         errorService.error('Failed to delete project', error);
+        alert('Failed to delete project: ' + error.message);
     }
 };
 

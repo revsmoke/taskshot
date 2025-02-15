@@ -76,11 +76,19 @@ class AIService {
                 Task Count: ${projectTasks.length} tasks in the last 50 entries`;
             }).join('\n\n');
 
+            // Create task history context
+            const taskHistory = tasks.slice(0, 5).map(t => 
+                `${new Date(t.timestamp).toLocaleString()}: ${t.name} (Project: ${t.project}, Category: ${t.category})`
+            ).join('\n');
+
             const prompt = `Analyze this task description and provide the following:
 1. Classify it into one of these categories: ${CONFIG.TASK_CATEGORIES.join(', ')}
 2. Suggest which project it belongs to based on the following project information:
 
 ${projectInfo}
+
+Recent Task History:
+${taskHistory}
 
 Consider:
 - Project descriptions and their relevance to the task
@@ -89,6 +97,7 @@ Consider:
 - Project type (billable vs non-billable)
 - Project names and their relevance to the task
 - Historical task volume and patterns
+- Recent task patterns and context
 
 Return only a JSON object in this format: {
     "task": "category",
@@ -102,22 +111,44 @@ If unsure about the project, use "default". Description: ${description}`;
             
             const result = await aiProviderService.callTextAPI(prompt);
 
-            // Validate result format and ensure project ID exists
+            // Validate result format
             if (!result.task || !result.confidence || !result.description || !result.project) {
                 errorService.warn('Invalid classification response format', {
                     response: result
                 });
-                result.project = 'default'; // Fallback to default project
+                // Find the default project ID
+                const defaultProject = projects.find(p => p.isDefaultProject);
+                result.project = defaultProject ? defaultProject.id : projects[0]?.id;
             } else {
-                // Verify the project ID exists
-                const projectExists = projects.some(p => p.id === result.project);
-                if (!projectExists) {
-                    errorService.warn('Invalid project ID returned by AI', {
-                        projectId: result.project
-                    });
-                    result.project = 'default';
+                // If AI returns "default" or "Default", find the actual default project ID
+                if (typeof result.project === 'string' && result.project.toLowerCase() === 'default') {
+                    const defaultProject = projects.find(p => p.isDefaultProject);
+                    if (defaultProject) {
+                        result.project = defaultProject.id;
+                    } else {
+                        // If no default project exists, use the first project
+                        result.project = projects[0]?.id;
+                    }
+                } else {
+                    // Verify the project ID exists
+                    const projectExists = projects.some(p => p.id === result.project);
+                    if (!projectExists) {
+                        errorService.warn('Invalid project ID returned by AI', {
+                            projectId: result.project
+                        });
+                        const defaultProject = projects.find(p => p.isDefaultProject);
+                        result.project = defaultProject ? defaultProject.id : projects[0]?.id;
+                    }
                 }
             }
+
+            // Add the prompt and context to the result
+            result.prompt = prompt;
+            result.context = {
+                projectInfo,
+                taskHistory,
+                timestamp: new Date().toISOString()
+            };
 
             return result;
         } catch (error) {

@@ -547,12 +547,6 @@ select[multiple] {
                         <label for="captureInterval">Capture Interval (minutes)</label>
                         <input type="number" id="captureInterval" min="1" value="5">
                     </div>
-                    <div class="form-group">
-                        <label for="defaultProject">Default Project</label>
-                        <select id="defaultProject">
-                            <!-- Projects will be added here -->
-                        </select>
-                    </div>
                     <button type="submit" class="btn">Save Settings</button>
                 </form>
             </div>
@@ -583,6 +577,18 @@ select[multiple] {
                             <!-- Templates will be added here -->
                         </div>
                         <button id="addTemplate" class="btn">Add Template</button>
+                    </div>
+                    <div class="setting-card">
+                        <h3>Default Project Settings</h3>
+                        <form id="defaultProjectForm" class="settings-form">
+                            <div class="form-group">
+                                <label for="defaultProject">Default Project for Uncategorized or Unclassified Tasks</label>
+                                <select id="defaultProject">
+                                    <!-- Projects will be added here -->
+                                </select>
+                            </div>
+                            <button type="submit" class="btn">Save Default Project</button>
+                        </form>
                     </div>
                 </div>
 

@@ -286,7 +286,8 @@ class BackgroundService {
                 billable: true, // Default value, can be customized
                 timestamp: now.toISOString(),
                 screenshot: thumbnailImage, // Add screenshot thumbnail
-                classification_prompt: classification.prompt // Add the classification prompt
+                classification_prompt: classification.prompt, // Add the classification prompt
+                prompt: classification.prompt // Add it with both names for compatibility
             };
 
             // Store in database
@@ -329,7 +330,9 @@ class BackgroundService {
                 project: 'Default',
                 billable: false,
                 timestamp: now.toISOString(),
-                screenshot: thumbnailImage
+                screenshot: thumbnailImage,
+                classification_prompt: 'Error: Task detection failed',
+                prompt: 'Error: Task detection failed'
             };
             
             try {
