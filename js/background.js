@@ -275,6 +275,7 @@ class BackgroundService {
                 name: classification.task,
                 confidence: classification.confidence,
                 description: classification.description,
+                analysis_description: description,
                 startTime: this.lastCapture || now,
                 endTime: now,
                 duration: this.lastCapture ? 

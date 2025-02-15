@@ -235,6 +235,9 @@ class AIProviderService {
                     throw new Error(`Unsupported provider for text API: ${provider.name}`);
             }
 
+            // Clean up content if it's wrapped in code blocks
+            content = content.replace(/```json\s*/, '').replace(/```\s*$/, '');
+
             // Try to parse JSON, if it fails return a default structure
             try {
                 return JSON.parse(content);

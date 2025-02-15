@@ -1066,6 +1066,11 @@ export function addTaskToUI(task) {
             </div>
             <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
             ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
+            ${task.analysis_description ? `
+            <details class="task-analysis">
+                <summary>View Detailed Analysis</summary>
+                <div class="task-analysis-content">${formatMarkdown(task.analysis_description)}</div>
+            </details>` : ''}
             <div class="task-uuid">ID: ${task.uuid}</div>
             <div class="task-actions">
                 <label class="billable-checkbox">
@@ -1313,3 +1318,119 @@ window.deleteCategory = (categoryId) => {
 
 // Make closeProjectModal available globally
 window.closeProjectModal = closeProjectModal;
+function formatMarkdown(text) {
+    if (!text) return '';
+  
+    let html = text;
+  
+    // --- 1) CODE BLOCKS (triple backticks) ---
+    // Capture everything between ``` ... ```
+    html = html.replace(/```([\s\S]*?)```/g, function (match, codeBlock) {
+      // Replace < and > inside code so browsers display them literally
+      const escapedCode = codeBlock
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<pre><code>${escapedCode}</code></pre>`;
+    });
+  
+    // --- 2) INLINE CODE (single backticks) ---
+    // For inline code, do a similar escape
+    html = html.replace(/`([^`]+)`/g, function (match, code) {
+      const escaped = code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<code>${escaped}</code>`;
+    });
+  
+    // --- 3) HEADINGS (# to ######) ---
+    // Order matters: detect longer (######) before shorter (#).
+    html = html
+      .replace(/^######\s+(.*)$/gm, '<h6>$1</h6>')
+      .replace(/^#####\s+(.*)$/gm, '<h5>$1</h5>')
+      .replace(/^####\s+(.*)$/gm, '<h4>$1</h4>')
+      .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
+      .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
+      .replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+  
+    // --- 4) BLOCKQUOTES (>) ---
+    // For lines starting with ">"
+    html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+  
+    // --- 5) BOLD & ITALICS ---
+    // Bold: **text**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text*
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  
+    // --- 6) LIST ITEMS ---
+    // (a) Unordered list: lines starting with "-" or "*"
+    html = html.replace(/^(\-|\*)\s+(.*)$/gm, '<li data-md-type="ul">$2</li>');
+  
+    // (b) Ordered list: lines starting with digit+dot
+    html = html.replace(/^(\d+)\.\s+(.*)$/gm, '<li data-md-type="ol">$2</li>');
+  
+    // --- 7) WRAP CONSECUTIVE <li> ... </li> BLOCKS IN <ul> OR <ol> ---
+    // This regex finds consecutive <li> blocks (including their newlines)
+    html = html.replace(/(?:<li data-md-type="(ol|ul)">.*?<\/li>\s*)+/gm, function (match) {
+      // Check the first <li>'s data attribute to decide ol vs ul
+      const listType = match.includes('data-md-type="ol"') ? 'ol' : 'ul';
+      // Remove the data-md-type attributes and wrap in list tags
+      const cleanedItems = match.replace(/\s?data-md-type="(ol|ul)"/g, '');
+      return `<${listType}>\n${cleanedItems}\n</${listType}>`;
+    });
+  
+    // --- 8) PARAGRAPHS ---
+    // (a) Split on blank lines => separate <p> blocks
+    // We’ll do this by first trimming extra spaces and ensuring consistent newlines
+    html = html.replace(/\r\n/g, '\n');
+    html = html.replace(/\n{2,}/g, '\n\n'); // unify multiple blank lines into two
+    const paragraphs = html.split(/\n\s*\n/);
+    html = paragraphs
+      .map(par => {
+        // If this chunk already contains block-level tags (like <h1>, <ul>, <ol>, etc.), 
+        // or if it’s entirely a list or blockquote, we might not want to wrap in <p>.
+        // A naive approach is to check if it starts with < (block-level) or has <ul>, <ol>, <h, <blockquote>, <pre>, <hr>, etc.
+        if (/^(<h\d|<ul>|<ol>|<blockquote>|<pre>|<table>|<hr>)/i.test(par.trim())) {
+          return par;
+        }
+        return `<p>${par.trim()}</p>`;
+      })
+      .join('\n');
+  
+    return html;
+  }
+function formatMarkdownOG(text) {
+    if (!text) return '';
+    
+    return text
+        // Convert numbered lists (ensuring proper numbering)
+        .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, '<ol>$&</ol>')
+        
+        // Convert bullet lists
+        .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+        
+        // Convert headers (##, ###)
+        .replace(/^###\s+(.+)$/gm, '<h4>$1</h4>')
+        .replace(/^##\s+(.+)$/gm, '<h3>$1</h3>')
+        
+        // Convert bold text
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        
+        // Convert italics
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        
+        // Convert paragraphs (double newlines)
+        .replace(/\n\n/g, '</p><p>')
+        
+        // Wrap in paragraph tags if not already wrapped
+        .replace(/^(.+)$/gm, function(match) {
+            if (!/^<[ho]/.test(match) && !/^<[up]/.test(match)) {
+                return '<p>' + match + '</p>';
+            }
+            return match;
+        });
+}
