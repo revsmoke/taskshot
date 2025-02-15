@@ -310,30 +310,29 @@ select[multiple] {
 }
 
 /* Modal Styles */
-.modal {
-    display: none;
+.modal-dialog {
+    padding: 0;
+    border: none;
+    border-radius: var(--border-radius);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    max-width: 90%;
+    max-height: 90vh;
+    align-content: center;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 1000;
-}
-
-.modal-content {
-    position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: white;
+}
+
+.modal-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
     padding: var(--card-padding);
-    border-radius: var(--border-radius);
     min-width: 350px;
-    max-width: 90%;
-    max-height: 90vh;
+    max-width: 600px;
     overflow-y: auto;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
 }
 
 .modal-actions {
@@ -341,17 +340,6 @@ select[multiple] {
     justify-content: flex-end;
     gap: 10px;
     margin-top: 20px;
-}
-
-.modal-overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 999;
 }
 
 /* Debug Panel */
@@ -664,10 +652,10 @@ select[multiple] {
     </div>
 
     <!-- Project Modal -->
-    <div id="projectModal" class="modal">
+    <dialog id="projectModal" class="modal-dialog">
         <div class="modal-content">
             <h3>Add/Edit Project</h3>
-            <form id="projectForm">
+            <form id="projectForm" method="dialog">
                 <div class="form-group">
                     <label for="projectName">Project Name</label>
                     <input type="text" id="projectName" required>
@@ -698,18 +686,18 @@ select[multiple] {
                     </label>
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="btn">Save Project</button>
-                    <button type="button" class="btn btn-danger" onclick="closeProjectModal()">Cancel</button>
+                    <button type="submit" class="btn" value="save">Save Project</button>
+                    <button type="button" class="btn btn-danger" value="cancel">Cancel</button>
                 </div>
             </form>
         </div>
-    </div>
+    </dialog>
 
     <!-- Manual Task Modal -->
-    <div id="manualTaskModal" class="modal">
+    <dialog id="manualTaskModal" class="modal-dialog">
         <div class="modal-content">
             <h3>Add Manual Task</h3>
-            <form id="manualTaskForm">
+            <form id="manualTaskForm" method="dialog">
                 <div class="form-group">
                     <label for="taskName">Task Name</label>
                     <input type="text" id="taskName" required>
@@ -745,18 +733,18 @@ select[multiple] {
                     </label>
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="btn">Save Task</button>
-                    <button type="button" class="btn btn-danger" onclick="closeManualTaskModal()">Cancel</button>
+                    <button type="submit" class="btn" value="save">Save Task</button>
+                    <button type="button" class="btn btn-danger" value="cancel">Cancel</button>
                 </div>
             </form>
         </div>
-    </div>
+    </dialog>
 
     <!-- Template Modal -->
-    <div id="templateModal" class="modal">
+    <dialog id="templateModal" class="modal-dialog">
         <div class="modal-content">
             <h3>Add/Edit Template</h3>
-            <form id="templateForm">
+            <form id="templateForm" method="dialog">
                 <div class="form-group">
                     <label for="templateName">Template Name</label>
                     <input type="text" id="templateName" required>
@@ -784,18 +772,18 @@ select[multiple] {
                     </label>
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="btn">Save Template</button>
-                    <button type="button" class="btn btn-danger" onclick="closeTemplateModal()">Cancel</button>
+                    <button type="submit" class="btn" value="save">Save Template</button>
+                    <button type="button" class="btn btn-danger" value="cancel">Cancel</button>
                 </div>
             </form>
         </div>
-    </div>
+    </dialog>
 
     <!-- Category Modal -->
-    <div id="categoryModal" class="modal">
+    <dialog id="categoryModal" class="modal-dialog">
         <div class="modal-content">
             <h3>Add/Edit Category</h3>
-            <form id="categoryForm">
+            <form id="categoryForm" method="dialog">
                 <div class="form-group">
                     <label for="categoryName">Category Name</label>
                     <input type="text" id="categoryName" required>
@@ -805,35 +793,37 @@ select[multiple] {
                     <input type="color" id="categoryColor" value="#3498db">
                 </div>
                 <div class="modal-actions">
-                    <button type="submit" class="btn">Save Category</button>
-                    <button type="button" class="btn btn-danger" onclick="closeCategoryModal()">Cancel</button>
+                    <button type="submit" class="btn" value="save">Save Category</button>
+                    <button type="button" class="btn btn-danger" value="cancel">Cancel</button>
                 </div>
             </form>
         </div>
-    </div>
+    </dialog>
 
     <!-- Task Confirmation Modal -->
-    <div id="taskModal" class="modal">
+    <dialog id="taskModal" class="modal-dialog">
         <div class="modal-content">
             <h3>Confirm Task</h3>
             <p>Please confirm or modify the detected task:</p>
             <div id="taskSuggestion" class="task-suggestion"></div>
-            <div class="form-group">
-                <label for="taskInput">Task Name</label>
-                <input type="text" id="taskInput" class="form-control">
-            </div>
-            <div class="form-group">
-                <label for="taskProjectSelect">Project</label>
-                <select id="taskProjectSelect" class="form-control">
-                    <!-- Projects will be populated dynamically -->
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button id="confirmTask" class="btn">Confirm</button>
-                <button id="cancelTask" class="btn btn-danger">Cancel</button>
-            </div>
+            <form method="dialog">
+                <div class="form-group">
+                    <label for="taskInput">Task Name</label>
+                    <input type="text" id="taskInput" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="taskProjectSelect">Project</label>
+                    <select id="taskProjectSelect" class="form-control">
+                        <!-- Projects will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button id="confirmTask" class="btn" value="confirm">Confirm</button>
+                    <button id="cancelTask" class="btn btn-danger" value="cancel">Cancel</button>
+                </div>
+            </form>
         </div>
-    </div>
+    </dialog>
     <div id="modalOverlay" class="modal-overlay"></div>
 
     <script type="module" src="js/config.js"></script>

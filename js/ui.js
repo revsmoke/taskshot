@@ -172,6 +172,78 @@ async function initializeSettings() {
     initializeAIProviderUI();
 }
 
+async function setupEventListeners() {
+    const startButton = document.getElementById('startTracking');
+    const pauseButton = document.getElementById('pauseTracking');
+    const settingsForm = document.querySelector('.settings-form');
+    const intervalInput = document.getElementById('captureInterval');
+    const addProjectButton = document.getElementById('addProject');
+    const addManualTaskButton = document.getElementById('addManualTask');
+    const projectFilter = document.getElementById('projectFilter');
+    const dateFilter = document.getElementById('dateFilter');
+    const clearFiltersButton = document.getElementById('clearFilters');
+
+    if (!startButton || !pauseButton || !settingsForm || !intervalInput || 
+        !addProjectButton || !addManualTaskButton || !projectFilter || 
+        !dateFilter || !clearFiltersButton) {
+        throw new Error('Required UI elements not found');
+    }
+
+    // Initialize UI state
+    pauseButton.disabled = true;
+
+    // Event handlers
+    startButton.addEventListener('click', () => {
+        backgroundService.start();
+        startButton.disabled = true;
+        pauseButton.disabled = false;
+    });
+
+    pauseButton.addEventListener('click', () => {
+        backgroundService.pause();
+        startButton.disabled = false;
+        pauseButton.disabled = true;
+    });
+
+    settingsForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const interval = parseInt(intervalInput.value, 10);
+        if (interval > 0) {
+            backgroundService.setCaptureInterval(interval);
+            localStorage.setItem('capture_interval', interval);
+        }
+    });
+
+    // Event listeners for filters
+    projectFilter.addEventListener('change', filterTasks);
+    dateFilter.addEventListener('change', filterTasks);
+    clearFiltersButton.addEventListener('click', () => {
+        projectFilter.value = '';
+        dateFilter.value = 'today';
+        filterTasks();
+    });
+
+    // Project management buttons
+    addProjectButton.addEventListener('click', () => openProjectModal());
+    addManualTaskButton.addEventListener('click', () => openManualTaskModal());
+    
+    // Add Category button
+    const addCategoryButton = document.getElementById('addCategory');
+    if (addCategoryButton) {
+        addCategoryButton.addEventListener('click', () => openCategoryModal());
+    }
+
+    // Load saved interval
+    const savedInterval = localStorage.getItem('capture_interval');
+    if (savedInterval) {
+        const interval = parseInt(savedInterval, 10);
+        if (interval > 0) {
+            intervalInput.value = interval;
+            backgroundService.setCaptureInterval(interval);
+        }
+    }
+}
+
 // Export functions at the top level
 export async function initializeUI() {
     try {
@@ -181,9 +253,44 @@ export async function initializeUI() {
         settingsBoundary = new ErrorBoundary('settings-form', errorService);
 
         // Initialize each component with its error boundary
-        await taskListBoundary.captureError(initializeTaskList);
-        await projectListBoundary.captureError(initializeProjectList);
-        await settingsBoundary.captureError(initializeSettings);
+        await taskListBoundary.captureError(async () => {
+            await initializeTaskList();
+            // Set up task-related event listeners
+            const taskContainer = document.getElementById('taskContainer');
+            if (!taskContainer) {
+                throw new Error('Task container not found');
+            }
+        });
+
+        await projectListBoundary.captureError(async () => {
+            await initializeProjectList();
+            // Set up project-related event listeners
+            const projectList = document.getElementById('projectList');
+            if (!projectList) {
+                throw new Error('Project list not found');
+            }
+        });
+
+        await settingsBoundary.captureError(async () => {
+            await initializeSettings();
+            // Set up settings-related event listeners
+            const settingsForm = document.querySelector('.settings-form');
+            if (!settingsForm) {
+                throw new Error('Settings form not found');
+            }
+        });
+
+        // Initialize UI components
+        await updateProjectLists();
+        updateTemplateList();
+        updateCategoryList();
+        updateCategorySelectors();
+        initializeAIProviderUI();
+        filterTasks();
+
+        // Set up event listeners after all components are initialized
+        await setupEventListeners();
+
     } catch (error) {
         errorService.error('Failed to initialize UI components', error);
         throw error; // Re-throw to trigger the error handler in DOMContentLoaded
@@ -223,6 +330,11 @@ async function saveProject(project) {
         } else {
             await dbService.updateProject(project);
         }
+        
+        // Reload projects from database to ensure we have the latest data
+        projects = await dbService.getAllProjects();
+        
+        // Update UI with latest data
         await updateProjectLists();
     } catch (error) {
         errorService.error('Failed to save project', error);
@@ -254,84 +366,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Initialize UI
         await initializeUI();
-        
-        // Set up event listeners
-        const startButton = document.getElementById('startTracking');
-        const pauseButton = document.getElementById('pauseTracking');
-        const settingsForm = document.querySelector('.settings-form');
-        const intervalInput = document.getElementById('captureInterval');
-        const addProjectButton = document.getElementById('addProject');
-        const addManualTaskButton = document.getElementById('addManualTask');
-        const projectFilter = document.getElementById('projectFilter');
-        const dateFilter = document.getElementById('dateFilter');
-        const clearFiltersButton = document.getElementById('clearFilters');
-        const projectList = document.getElementById('projectList');
-        const defaultProjectSelect = document.getElementById('defaultProject');
-
-        // Initialize UI state
-        pauseButton.disabled = true;
-
-        // Event handlers
-        startButton.addEventListener('click', () => {
-            backgroundService.start();
-            startButton.disabled = true;
-            pauseButton.disabled = false;
-        });
-
-        pauseButton.addEventListener('click', () => {
-            backgroundService.pause();
-            startButton.disabled = false;
-            pauseButton.disabled = true;
-        });
-
-        settingsForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const interval = parseInt(intervalInput.value, 10);
-            if (interval > 0) {
-                backgroundService.setCaptureInterval(interval);
-                localStorage.setItem('capture_interval', interval);
-            }
-        });
-
-        // Event listeners for filters
-        projectFilter.addEventListener('change', filterTasks);
-        dateFilter.addEventListener('change', filterTasks);
-        clearFiltersButton.addEventListener('click', () => {
-            projectFilter.value = '';
-            dateFilter.value = 'today';
-            filterTasks();
-        });
-
-        // Project management buttons
-        addProjectButton.addEventListener('click', () => openProjectModal());
-        addManualTaskButton.addEventListener('click', () => openManualTaskModal());
-        
-        // Add Category button
-        const addCategoryButton = document.getElementById('addCategory');
-        if (addCategoryButton) {
-            addCategoryButton.addEventListener('click', () => openCategoryModal());
-        }
-
-        // Create task confirmation modal
-        createTaskModal();
-        
-        // Initialize everything
-        updateProjectLists();
-        updateTemplateList();
-        updateCategoryList();
-        updateCategorySelectors();
-        initializeAIProviderUI();
-        filterTasks();
-        
-        // Load saved interval on startup
-        const savedInterval = localStorage.getItem('capture_interval');
-        if (savedInterval) {
-            const interval = parseInt(savedInterval, 10);
-            if (interval > 0) {
-                intervalInput.value = interval;
-                backgroundService.setCaptureInterval(interval);
-            }
-        }
     } catch (error) {
         errorService.fatal('Critical initialization error', error);
         showInitializationError();
@@ -429,8 +463,19 @@ function updateCategorySelectors() {
     if (projectCategories) projectCategories.innerHTML = categoryOptions;
 }
 
+// Define closeProjectModal function
+function closeProjectModal() {
+    const modal = document.getElementById('projectModal');
+    if (modal) {
+        modal.close('cancel');
+    }
+}
+
+// Make it available globally
+window.closeProjectModal = closeProjectModal;
+
 // Project Modal Handling
-async function openProjectModal(projectId = null) {
+window.openProjectModal = async function(projectId = null) {
     try {
         const modal = document.getElementById('projectModal');
         const form = document.getElementById('projectForm');
@@ -463,9 +508,8 @@ async function openProjectModal(projectId = null) {
             }
         }
 
-        // Show modal
-        modal.style.display = 'block';
-        document.getElementById('modalOverlay').style.display = 'block';
+        // Show modal using showModal()
+        modal.showModal();
 
         // Handle form submission
         form.onsubmit = async (e) => {
@@ -483,41 +527,27 @@ async function openProjectModal(projectId = null) {
             };
 
             await saveProject(projectData);
-            closeProjectModal();
+            modal.close('save');
         };
+
+        // Handle cancel button
+        const cancelButton = form.querySelector('button[value="cancel"]');
+        cancelButton.onclick = () => modal.close('cancel');
+
+        // Handle dialog close
+        modal.addEventListener('close', () => {
+            if (modal.returnValue === 'save') {
+                // Project was saved, already handled in form submit
+            } else {
+                // Modal was cancelled or closed
+                form.reset();
+            }
+        }, { once: true });
+
     } catch (error) {
         errorService.error('Failed to open project modal', error);
     }
-}
-
-function closeProjectModal() {
-    const modal = document.getElementById('projectModal');
-    modal.style.display = 'none';
-}
-
-// Project Form Handling
-document.getElementById('projectForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const projectData = {
-        id: form.dataset.editId || generateUUID(),
-        name: form.querySelector('#projectName').value,
-        color: form.querySelector('#projectColor').value,
-        billableRate: parseFloat(form.querySelector('#billableRate').value) || 0,
-        defaultBillable: form.querySelector('#defaultBillable').checked,
-        description: form.querySelector('#projectDescription').value || '',
-        categories: Array.from(form.querySelector('#projectCategories').selectedOptions).map(opt => opt.value)
-    };
-
-    if (form.dataset.editId) {
-        projects = projects.map(p => p.id === form.dataset.editId ? projectData : p);
-    } else {
-        projects.push(projectData);
-    }
-
-    saveProjects();
-    closeProjectModal();
-});
+};
 
 // Manual Task Entry
 window.openManualTaskModal = () => {
@@ -529,63 +559,58 @@ window.openManualTaskModal = () => {
     form.querySelector('#taskStartTime').value = now.toISOString().slice(0, 16);
     form.querySelector('#taskEndTime').value = new Date(now.getTime() + 30*60000).toISOString().slice(0, 16);
     
-    modal.style.display = 'block';
-};
+    // Show modal using showModal()
+    modal.showModal();
 
-window.closeManualTaskModal = () => {
-    document.getElementById('manualTaskModal').style.display = 'none';
-};
+    // Handle form submission
+    form.onsubmit = async (e) => {
+        e.preventDefault();
+        const selectedProject = form.querySelector('#taskProject').value;
+        const selectedCategory = form.querySelector('#taskCategory').value;
+        
+        // Validate that the selected category is supported by the project
+        const project = projects.find(p => p.id === selectedProject);
+        if (!project.categories.includes(selectedCategory)) {
+            alert(`The category "${selectedCategory}" is not supported by the project "${project.name}". Please select a supported category.`);
+            return;
+        }
 
-// Manual Task Form Handling
-document.getElementById('manualTaskForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const selectedProject = form.querySelector('#taskProject').value;
-    const selectedCategory = form.querySelector('#taskCategory').value;
-    
-    // Validate that the selected category is supported by the project
-    const project = projects.find(p => p.id === selectedProject);
-    if (!project.categories.includes(selectedCategory)) {
-        alert(`The category "${selectedCategory}" is not supported by the project "${project.name}". Please select a supported category.`);
-        return;
-    }
+        const startTime = new Date(form.querySelector('#taskStartTime').value);
+        const endTime = new Date(form.querySelector('#taskEndTime').value);
+        
+        const task = {
+            uuid: backgroundService.generateUUID ? backgroundService.generateUUID() : generateUUID(),
+            name: form.querySelector('#taskName').value,
+            project: selectedProject,
+            category: selectedCategory,
+            startTime: startTime,
+            endTime: endTime,
+            duration: Math.round((endTime - startTime) / 1000 / 60),
+            description: form.querySelector('#taskDescription').value,
+            billable: form.querySelector('#taskBillable').checked,
+            confidence: 1.0,
+            timestamp: new Date().toISOString()
+        };
 
-    const startTime = new Date(form.querySelector('#taskStartTime').value);
-    const endTime = new Date(form.querySelector('#taskEndTime').value);
-    
-    const task = {
-        uuid: backgroundService.generateUUID ? backgroundService.generateUUID() : generateUUID(),
-        name: form.querySelector('#taskName').value,
-        project: selectedProject,
-        category: selectedCategory,
-        startTime: startTime,
-        endTime: endTime,
-        duration: Math.round((endTime - startTime) / 1000 / 60),
-        description: form.querySelector('#taskDescription').value,
-        billable: form.querySelector('#taskBillable').checked,
-        confidence: 1.0,
-        timestamp: new Date().toISOString()
+        await dbService.addTask(task);
+        backgroundService.addTaskToUI(task);
+        modal.close('save');
     };
 
-    await dbService.addTask(task);
-    backgroundService.addTaskToUI(task);
-    closeManualTaskModal();
-});
+    // Handle cancel button
+    const cancelButton = form.querySelector('button[value="cancel"]');
+    cancelButton.onclick = () => modal.close('cancel');
 
-// Add dynamic category filtering when project is selected
-document.getElementById('taskProject').addEventListener('change', (e) => {
-    const selectedProject = e.target.value;
-    const project = projects.find(p => p.id === selectedProject);
-    const categorySelect = document.getElementById('taskCategory');
-    
-    // Filter categories to only show those supported by the selected project
-    Array.from(categorySelect.options).forEach(option => {
-        option.disabled = !project.categories.includes(option.value);
-        if (option.disabled && option.selected) {
-            categorySelect.value = project.categories[0]; // Select first supported category
+    // Handle dialog close
+    modal.addEventListener('close', () => {
+        if (modal.returnValue === 'save') {
+            // Task was saved, already handled in form submit
+        } else {
+            // Modal was cancelled or closed
+            form.reset();
         }
-    });
-});
+    }, { once: true });
+};
 
 // Task Filtering
 function filterTasks() {
@@ -687,6 +712,8 @@ const addExportButton = () => {
             const description = task.querySelector('.task-description')?.textContent || '';
             const taskId = task.dataset.taskId;
             const screenshot = task.dataset.screenshot || dbService.defaultScreenshot;
+            const analysisDescription = task.querySelector('.task-analysis-content')?.textContent || '';
+            const classificationPrompt = task.dataset.classificationPrompt || '';
 
             return {
                 UUID: taskId || 'N/A',
@@ -699,7 +726,8 @@ const addExportButton = () => {
                 Category: category,
                 Task: name,
                 Description: description,
-                'Analysis Description': task.querySelector('.task-analysis-content')?.textContent || '',
+                'Analysis Description': analysisDescription,
+                'Classification Prompt': classificationPrompt,
                 Billable: billable ? 'Yes' : 'No',
                 Confidence: confidence.toFixed(2),
                 Screenshot: screenshot
@@ -719,6 +747,7 @@ const addExportButton = () => {
             'Task',
             'Description',
             'Analysis Description',
+            'Classification Prompt',
             'Billable',
             'Confidence',
             'Screenshot'
@@ -1056,6 +1085,7 @@ export function addTaskToUI(task) {
     taskElement.dataset.timestamp = task.timestamp;
     taskElement.dataset.duration = task.duration;
     taskElement.dataset.screenshot = task.screenshot || dbService.defaultScreenshot;
+    taskElement.dataset.classificationPrompt = task.classification_prompt || '';
     
     // Format times for display
     const startTime = new Date(task.startTime).toLocaleTimeString();
@@ -1363,8 +1393,6 @@ window.deleteCategory = (categoryId) => {
     }
 };
 
-// Make closeProjectModal available globally
-window.closeProjectModal = closeProjectModal;
 function formatMarkdown(text) {
     if (!text) return '';
   

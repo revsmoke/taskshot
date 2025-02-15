@@ -285,7 +285,8 @@ class BackgroundService {
                 project: classification.project || 'Default', // Use AI-suggested project
                 billable: true, // Default value, can be customized
                 timestamp: now.toISOString(),
-                screenshot: thumbnailImage // Add screenshot thumbnail
+                screenshot: thumbnailImage, // Add screenshot thumbnail
+                classification_prompt: classification.prompt // Add the classification prompt
             };
 
             // Store in database
@@ -376,12 +377,10 @@ class BackgroundService {
 
     showTaskConfirmation(task) {
         const modal = document.getElementById('taskModal');
-        const overlay = document.getElementById('modalOverlay');
         const suggestion = document.getElementById('taskSuggestion');
         const input = document.getElementById('taskInput');
         const projectSelect = document.getElementById('taskProjectSelect');
-        const confirmBtn = document.getElementById('confirmTask');
-        const cancelBtn = document.getElementById('cancelTask');
+        const form = modal.querySelector('form');
 
         // Load projects into select
         const projects = JSON.parse(localStorage.getItem('projects')) || [];
@@ -392,17 +391,12 @@ class BackgroundService {
         suggestion.textContent = `Suggested: ${task.name} (${(task.confidence * 100).toFixed(1)}% confident)`;
         input.value = task.name;
 
-        modal.style.display = 'block';
-        overlay.style.display = 'block';
+        // Show modal using showModal()
+        modal.showModal();
 
-        const cleanup = () => {
-            modal.style.display = 'none';
-            overlay.style.display = 'none';
-            confirmBtn.removeEventListener('click', handleConfirm);
-            cancelBtn.removeEventListener('click', handleCancel);
-        };
-
-        const handleConfirm = async () => {
+        // Handle form submission
+        form.onsubmit = async (e) => {
+            e.preventDefault();
             const updatedTask = {
                 ...task,
                 name: input.value,
@@ -411,15 +405,22 @@ class BackgroundService {
             };
             await dbService.addTask(updatedTask);
             addTaskToUI(updatedTask);
-            cleanup();
+            modal.close('confirm');
         };
 
-        const handleCancel = () => {
-            cleanup();
-        };
+        // Handle cancel button
+        const cancelButton = form.querySelector('button[value="cancel"]');
+        cancelButton.onclick = () => modal.close('cancel');
 
-        confirmBtn.addEventListener('click', handleConfirm);
-        cancelBtn.addEventListener('click', handleCancel);
+        // Handle dialog close
+        modal.addEventListener('close', () => {
+            if (modal.returnValue === 'confirm') {
+                // Task was confirmed, already handled in form submit
+            } else {
+                // Modal was cancelled or closed
+                form.reset();
+            }
+        }, { once: true });
     }
 
     scheduleNextCapture() {
