@@ -883,7 +883,7 @@ async function createCompositeScreenshot(screenshots) {
         
         // Create a canvas for the composite image
         const canvas = document.createElement('canvas');
-        const size = 100; // Final image size
+        const size = 300; // Final image size
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext('2d');
@@ -1022,7 +1022,9 @@ window.useTemplate = (templateId) => {
 
 // Export addTaskToUI function and make it available globally
 export function addTaskToUI(task) {
+    //console.log('addTaskToUI', task);
     const taskContainer = document.getElementById('taskContainer');
+    //console.log('taskContainer', taskContainer);
     if (!taskContainer) return;
     const taskElement = document.createElement('div');
     taskElement.className = 'task-item';
@@ -1085,12 +1087,25 @@ export function addTaskToUI(task) {
         e.stopPropagation();
         window.toggleTaskSelection(task.uuid);
     });
-
+    
     taskContainer.appendChild(taskElement);
+    //taskContainer.prepend(taskElement);
+     // Add to beginning of list
+     /* if (taskContainer.firstChild) {
+        console.log('taskContainer.firstChild', taskContainer.firstChild);
+        taskContainer.insertBefore(taskElement, taskContainer.firstChild);
+    } else {
+        taskContainer.appendChild(taskElement);
+    } */
+
+    // Keep only last 10 tasks
+   // while (taskContainer.children.length > 10) {
+        //taskContainer.removeChild(taskContainer.lastChild);
+   //}
 }
 
 // Make addTaskToUI available globally
-window.addTaskToUI = addTaskToUI;
+//window.addTaskToUI = addTaskToUI;
 
 function showScreenshotPreview(screenshot) {
     const modal = document.createElement('div');

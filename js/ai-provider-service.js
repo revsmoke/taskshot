@@ -149,7 +149,7 @@ class AIProviderService {
         switch (provider.name.toLowerCase()) {
             case 'openai':
                 return {
-                    model: 'gpt-4o-mini',
+                    model: model.name,
                     messages: [{
                         role: "user",
                         content: [
@@ -184,10 +184,9 @@ class AIProviderService {
                     model: model.name,
                     messages: [{
                         role: "user",
-                        content: prompt
+                        content: `${prompt}\n\nRespond ONLY with a JSON object in this exact format:\n{\n  "task": "category - specific task",\n  "project": "project_id",\n  "confidence": 0.XX,\n  "description": "brief explanation"\n}`
                     }],
-                    max_tokens: model.maxTokens,
-                    response_format: { type: "json_object" }
+                    max_tokens: model.maxTokens
                 };
             case 'anthropic':
                 return {
@@ -220,15 +219,37 @@ class AIProviderService {
     }
 
     _extractTextResponse(provider, data) {
-        switch (provider.name.toLowerCase()) {
-            case 'openai':
-                return JSON.parse(data.choices[0].message.content);
-            case 'anthropic':
-                return JSON.parse(data.content[0].text);
-            case 'local':
-                return JSON.parse(data.response);
-            default:
-                throw new Error(`Unsupported provider for text API: ${provider.name}`);
+        try {
+            let content;
+            switch (provider.name.toLowerCase()) {
+                case 'openai':
+                    content = data.choices[0].message.content;
+                    break;
+                case 'anthropic':
+                    content = data.content[0].text;
+                    break;
+                case 'local':
+                    content = data.response;
+                    break;
+                default:
+                    throw new Error(`Unsupported provider for text API: ${provider.name}`);
+            }
+
+            // Try to parse JSON, if it fails return a default structure
+            try {
+                return JSON.parse(content);
+            } catch (parseError) {
+                errorService.warn('Failed to parse JSON response, using default structure', { content });
+                return {
+                    task: 'Unknown Task',
+                    confidence: 0.5,
+                    description: content,
+                    project: 'default'
+                };
+            }
+        } catch (error) {
+            errorService.error('Error extracting text response', error);
+            throw error;
         }
     }
 

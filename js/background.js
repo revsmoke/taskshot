@@ -2,6 +2,7 @@ import { aiService } from './ai-service.js';
 import { dbService } from './db-service.js';
 import { errorService } from './error-service.js';
 import { aiProviderService } from './ai-provider-service.js';
+import { addTaskToUI } from './ui.js';
 
 class BackgroundService {
     constructor() {
@@ -43,7 +44,7 @@ class BackgroundService {
             
             // Load recent tasks
             const recentTasks = await dbService.getRecentTasks();
-            recentTasks.forEach(task => this.addTaskToUI(task));
+            recentTasks.forEach(task => addTaskToUI(task));
             
             errorService.info('Background service initialized successfully');
         } catch (error) {
@@ -291,7 +292,7 @@ class BackgroundService {
             console.log('Task stored in database');
 
             // Update UI using the UI module's function
-            window.addTaskToUI(task);
+            addTaskToUI(task);
 
             // If confidence is low, show confirmation modal
             if (classification.confidence < 0.7) {
@@ -331,7 +332,7 @@ class BackgroundService {
             
             try {
                 await dbService.addTask(failedTask);
-                window.addTaskToUI(failedTask);
+                addTaskToUI(failedTask);
             } catch (saveError) {
                 errorService.error('Failed to save error task', saveError);
             }
@@ -348,7 +349,7 @@ class BackgroundService {
                 const ctx = canvas.getContext('2d');
                 
                 // Set thumbnail size (100x100 pixels)
-                const size = 100;
+                const size = 300;
                 canvas.width = size;
                 canvas.height = size;
 
@@ -408,7 +409,7 @@ class BackgroundService {
                 confidence: input.value === task.name ? task.confidence : 1.0 // Only set to 1.0 if user modified the task
             };
             await dbService.addTask(updatedTask);
-            window.addTaskToUI(updatedTask);
+            addTaskToUI(updatedTask);
             cleanup();
         };
 
@@ -418,113 +419,6 @@ class BackgroundService {
 
         confirmBtn.addEventListener('click', handleConfirm);
         cancelBtn.addEventListener('click', handleCancel);
-    }
-
-    addTaskToUI(task) {
-        const taskContainer = document.getElementById('taskContainer');
-        const taskElement = document.createElement('div');
-        taskElement.className = 'task-item';
-        taskElement.dataset.taskId = task.uuid;
-        taskElement.dataset.project = task.project;
-        taskElement.dataset.category = task.category;
-        taskElement.dataset.billable = task.billable;
-        taskElement.dataset.startTime = task.startTime;
-        taskElement.dataset.endTime = task.endTime;
-        taskElement.dataset.timestamp = task.timestamp;
-        taskElement.dataset.duration = task.duration;
-        taskElement.dataset.screenshot = task.screenshot || dbService.defaultScreenshot;
-        
-        // Format times for display
-        const startTime = new Date(task.startTime).toLocaleTimeString();
-        const endTime = new Date(task.endTime).toLocaleTimeString();
-        
-        taskElement.innerHTML = `
-            <div class="task-content">
-                <div class="task-header">
-                    <label class="task-select">
-                        <input type="checkbox" class="task-checkbox" title="Select for merging" style="width: 20px; height: 20px; margin-right: 10px;">
-                        <span>Select</span>
-                    </label>
-                    <img src="${task.screenshot || dbService.defaultScreenshot}" 
-                         alt="Task Screenshot" 
-                         class="task-screenshot"
-                         style="width: 50px; height: 50px; object-fit: contain; margin-right: 10px; cursor: pointer;"
-                         title="Click to view full screenshot">
-                    <strong class="task-name">${task.name}</strong>
-                </div>
-                <div class="task-details">
-                    <span class="task-project">Project: ${task.project}</span> |
-                    <span class="task-category">Category: ${task.category}</span> |
-                    <span class="task-duration">Duration: ${task.duration} min</span>
-                </div>
-                <div class="task-time">
-                    ${startTime} - ${endTime}
-                </div>
-                <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
-                ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
-                <div class="task-uuid">ID: ${task.uuid}</div>
-                <div class="task-actions">
-                    <label class="billable-checkbox">
-                        <input type="checkbox" ${task.billable ? 'checked' : ''} onclick="event.stopPropagation();">
-                        <span>Billable</span>
-                    </label>
-                </div>
-            </div>
-        `;
-
-        // Add click handler for screenshot preview
-        const screenshotImg = taskElement.querySelector('.task-screenshot');
-        screenshotImg.addEventListener('click', () => {
-            this.showScreenshotPreview(task.screenshot || dbService.defaultScreenshot);
-        });
-
-        // Add click handler for task selection
-        taskElement.querySelector('.task-checkbox').addEventListener('click', (e) => {
-            e.stopPropagation();
-            window.toggleTaskSelection(task.uuid);
-        });
-        
-        // Add to beginning of list
-        if (taskContainer.firstChild) {
-            taskContainer.insertBefore(taskElement, taskContainer.firstChild);
-        } else {
-            taskContainer.appendChild(taskElement);
-        }
-    }
-
-    showScreenshotPreview(screenshot) {
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            cursor: pointer;
-        `;
-
-        const img = document.createElement('img');
-        img.src = screenshot;
-        img.style.cssText = `
-            max-width: 90%;
-            max-height: 90%;
-            object-fit: contain;
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-        `;
-
-        modal.appendChild(img);
-        document.body.appendChild(modal);
-
-        modal.addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
     }
 
     scheduleNextCapture() {
