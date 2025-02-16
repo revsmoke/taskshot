@@ -636,7 +636,12 @@ window.openManualTaskModal = () => {
             description: form.querySelector('#taskDescription').value,
             billable: form.querySelector('#taskBillable').checked,
             confidence: 1.0,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            context: {
+                projectInfo: 'Manually created task',
+                taskHistory: 'No task history available',
+                timestamp: new Date().toISOString()
+            }
         };
 
         await dbService.addTask(task);
@@ -1102,7 +1107,12 @@ document.getElementById('mergeSelected').addEventListener('click', async () => {
         billable: tasks[0].billable,
         confidence: minConfidence,
         timestamp: new Date().toISOString(),
-        screenshot: compositeScreenshot
+        screenshot: compositeScreenshot,
+        context: {
+            projectInfo: 'Merged from multiple tasks',
+            taskHistory: tasks.map(t => `${t.name} (${t.project})`).join('\n'),
+            timestamp: new Date().toISOString()
+        }
     };
 
     // Delete original tasks and add merged task
@@ -1198,7 +1208,7 @@ export function addTaskToUI(task) {
                     <h5>Project Information:</h5>
                     ${formatMarkdown(task.context.projectInfo)}
                 </div>
-            </details>` : ''}
+            </details>` : '<div>No context available</div>'}
             <div class="task-uuid">ID: ${task.uuid}</div>
             <div class="task-actions">
                 <label class="billable-checkbox">

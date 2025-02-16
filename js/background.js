@@ -287,7 +287,8 @@ class BackgroundService {
                 timestamp: now.toISOString(),
                 screenshot: thumbnailImage, // Add screenshot thumbnail
                 classification_prompt: classification.prompt, // Add the classification prompt
-                prompt: classification.prompt // Add it with both names for compatibility
+                prompt: classification.prompt, // Add it with both names for compatibility
+                context: classification.context // Add the classification context
             };
 
             // Store in database
@@ -332,7 +333,12 @@ class BackgroundService {
                 timestamp: now.toISOString(),
                 screenshot: thumbnailImage,
                 classification_prompt: 'Error: Task detection failed',
-                prompt: 'Error: Task detection failed'
+                prompt: 'Error: Task detection failed',
+                context: {
+                    projectInfo: 'Error: Task detection failed',
+                    taskHistory: 'No task history available',
+                    timestamp: now.toISOString()
+                }
             };
             
             try {
