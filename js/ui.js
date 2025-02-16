@@ -1163,59 +1163,124 @@ export function addTaskToUI(task) {
     // Format times for display
     const startTime = new Date(task.startTime).toLocaleTimeString();
     const endTime = new Date(task.endTime).toLocaleTimeString();
+    const taskDate= new Date(task.context.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const taskIconSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <!-- Background square with rounded corners -->
+    <rect x="5" y="5" width="90" height="90" rx="10" fill="none" stroke="#000" stroke-width="1.5"/>
+    
+    <!-- Main circular elements -->
+    <g stroke="#000" fill="none">
+        <!-- Outer ring -->
+        <circle cx="50" cy="50" r="30" stroke-width="1.5"/>
+        
+        <!-- Middle ring with gaps -->
+        <path d="M50 30 A20 20 0 0 1 70 50 M50 70 A20 20 0 0 1 30 50" stroke-width="1.5"/>
+        
+        <!-- Inner ring -->
+        <circle cx="50" cy="50" r="12" stroke-width="1.5"/>
+    </g>
+    
+    <!-- Radiating lines -->
+    <g stroke="#000" stroke-width="1">
+        <line x1="50" y1="20" x2="50" y2="28"/>
+        <line x1="50" y1="72" x2="50" y2="80"/>
+        <line x1="20" y1="50" x2="28" y2="50"/>
+        <line x1="72" y1="50" x2="80" y2="50"/>
+        
+        <!-- Diagonal lines -->
+        <line x1="29.3" y1="29.3" x2="35.3" y2="35.3"/>
+        <line x1="70.7" y1="29.3" x2="64.7" y2="35.3"/>
+        <line x1="29.3" y1="70.7" x2="35.3" y2="64.7"/>
+        <line x1="70.7" y1="70.7" x2="64.7" y2="64.7"/>
+    </g>
+    
+    <!-- Corner elements -->
+    <g stroke="#000" stroke-width="1.5" fill="none">
+        <path d="M25 25 L25 30 L30 30"/>
+        <path d="M75 25 L75 30 L70 30"/>
+        <path d="M25 75 L25 70 L30 70"/>
+        <path d="M75 75 L75 70 L70 70"/>
+    </g>
+    
+    <!-- Center element -->
+    <g>
+        <circle cx="50" cy="50" r="4" fill="none" stroke="#000" stroke-width="1"/>
+        <circle cx="50" cy="50" r="1.5" fill="#000"/>
+    </g>
+</svg>
+
+    `;
     
     taskElement.innerHTML = `
         <div class="task-content">
             <div class="task-header">
                 <label class="task-select">
                     <input type="checkbox" class="task-checkbox" title="Select for merging" style="width: 20px; height: 20px; margin-right: 10px;">
-                    <span>Select</span>
-                </label>
-                <img src="${task.screenshot || dbService.defaultScreenshot}" 
-                     alt="Task Screenshot" 
-                     class="task-screenshot"
-                     style="width: 50px; height: 50px; object-fit: contain; margin-right: 10px; cursor: pointer;"
-                     title="Click to view full screenshot">
-                <strong class="task-name">${task.name}</strong>
-            </div>
-            <div class="task-details">
-                <span class="task-project">Project: ${task.project}</span> |
-                <span class="task-category">Category: ${task.category}</span> |
-                <span class="task-duration">Duration: ${task.duration} min</span>
-            </div>
-            <div class="task-time">
-                ${startTime} - ${endTime}
-            </div>
-            <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
-            ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
-            ${task.analysis_description ? `
-            <details class="task-analysis">
-                <summary>View Detailed Analysis</summary>
-                <div class="task-analysis-content">${formatMarkdown(task.analysis_description)}</div>
-            </details>` : ''}
-            ${task.classification_prompt || task.prompt ? `
-            <details class="task-analysis">
-                <summary>View Classification Prompt</summary>
-                <div class="task-analysis-content">${formatMarkdown(task.classification_prompt || task.prompt)}</div>
-            </details>` : ''}
-            ${task.context ? `
-            <details class="task-analysis">
-                <summary>View Classification Context</summary>
-                <div class="task-analysis-content">
-                    <h4>Context at ${new Date(task.context.timestamp).toLocaleString()}</h4>
-                    <h5>Recent Task History:</h5>
-                    ${formatMarkdown(task.context.taskHistory)}
-                    <h5>Project Information:</h5>
-                    ${formatMarkdown(task.context.projectInfo)}
+                  
+               
+                <div class="task-time">
+                    ${startTime} - ${endTime} ${taskDate}
                 </div>
-            </details>` : '<div>No context available</div>'}
-            <div class="task-uuid">ID: ${task.uuid}</div>
+                 </label>
+
+                <strong class="task-name">${task.name}</strong>
+                <div class="task-icon">
+                <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB4PSI1IiB5PSI1IiB3aWR0aD0iOTAiIGhlaWdodD0iOTAiIHJ4PSIxMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxnIHN0cm9rZT0iIzAwMCIgZmlsbD0ibm9uZSI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iMzAiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHBhdGggZD0iTTUwIDMwIEEyMCAyMCAwIDAgMSA3MCA1MCBNNTAgNzAgQTIwIDIwIDAgMCAxIDMwIDUwIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjEyIiBzdHJva2Utd2lkdGg9IjEuNSIvPjwvZz48ZyBzdHJva2U9IiMwMDAiIHN0cm9rZS13aWR0aD0iMSI+PGxpbmUgeDE9IjUwIiB5MT0iMjAiIHgyPSI1MCIgeTI9IjI4Ii8+PGxpbmUgeDE9IjUwIiB5MT0iNzIiIHgyPSI1MCIgeTI9IjgwIi8+PGxpbmUgeDE9IjIwIiB5MT0iNTAiIHgyPSIyOCIgeTI9IjUwIi8+PGxpbmUgeDE9IjcyIiB5MT0iNTAiIHgyPSI4MCIgeTI9IjUwIi8+PGxpbmUgeDE9IjI5LjMiIHkxPSIyOS4zIiB4Mj0iMzUuMyIgeTI9IjM1LjMiLz48bGluZSB4MT0iNzAuNyIgeTE9IjI5LjMiIHgyPSI2NC43IiB5Mj0iMzUuMyIvPjxsaW5lIHgxPSIyOS4zIiB5MT0iNzAuNyIgeDI9IjM1LjMiIHkyPSI2NC43Ii8+PGxpbmUgeDE9IjcwLjciIHkxPSI3MC43IiB4Mj0iNjQuNyIgeTI9IjY0LjciLz48L2c+PGcgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgZmlsbD0ibm9uZSI+PHBhdGggZD0iTTI1IDI1IEwyNSAzMCBMMzAgMzAiLz48cGF0aCBkPSJNNzUgMjUgTDc1IDMwIEw3MCAzMCIvPjxwYXRoIGQ9Ik0yNSA3NSBMMjUgNzAgTDMwIDcwIi8+PHBhdGggZD0iTTc1IDc1IEw3NSA3MCBMNzAgNzAiLz48L2c+PGc+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSIxLjUiIGZpbGw9IiMwMDAiLz48L2c+PC9zdmc+" alt="Task Icon" style="width: 24px; height: 24px;">
+                </div>
+            </div>
             <div class="task-actions">
                 <label class="billable-checkbox">
                     <input type="checkbox" ${task.billable ? 'checked' : ''} onclick="event.stopPropagation();">
                     <span>Billable</span>
                 </label>
             </div>
+            <details class="task-details">
+            <summary>View Task Details</summary>
+            <div class="task-group">
+                <div class="task-details">
+                    <span class="task-project">Project: ${task.project}</span> |
+                    <span class="task-category">Category: ${task.category}</span> |
+                    <span class="task-duration">Duration: ${task.duration} min</span>
+                     <div class="task-confidence">Confidence: ${(task.confidence * 100).toFixed(1)}%</div>
+                     ${task.description ? `<div class="task-description">${task.description}</div>` : ''}
+                     ${task.analysis_description ? `
+                        <details class="task-analysis">
+                            <summary>View Detailed Analysis</summary>
+                            <div class="task-analysis-content">${formatMarkdown(task.analysis_description)}</div>
+                        </details>` : ''}
+                        ${task.classification_prompt || task.prompt ? `
+                        <details class="task-analysis">
+                            <summary>View Classification Prompt</summary>
+                            <div class="task-analysis-content">${formatMarkdown(task.classification_prompt || task.prompt)}</div>
+                        </details>` : ''}
+                        ${task.context ? `
+                        <details class="task-analysis">
+                            <summary>View Classification Context</summary>
+                            <div class="task-analysis-content">
+                                <h4>Context at ${new Date(task.context.timestamp).toLocaleString()}</h4>
+                                <h5>Recent Task History:</h5>
+                                ${formatMarkdown(task.context.taskHistory)}
+                                <h5>Project Information:</h5>
+                                ${formatMarkdown(task.context.projectInfo)}
+                            </div>
+                        </details>` : '<div>No context available</div>'}
+                </div>            
+                <div class="task-image">
+                    <img src="${task.screenshot || dbService.defaultScreenshot}" 
+                        alt="Task Screenshot" 
+                        class="task-screenshot"
+                        style="width: 300px; height: 300px; object-fit: contain; margin-right: 10px; cursor: pointer;"
+                        title="Click to view full screenshot">
+                </div>
+            </div>
+            </details>
+           
+            
+            
+            <div class="task-uuid">ID: ${task.uuid}</div>
+            
         </div>
     `;
 
