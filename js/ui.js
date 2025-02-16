@@ -1162,8 +1162,15 @@ export function addTaskToUI(task) {
     
     // Format times for display
     const startTime = new Date(task.startTime).toLocaleTimeString();
+    const startTimeHours = new Date(task.startTime).getHours();
+    const startTimeMinutes = new Date(task.startTime).getMinutes();
     const endTime = new Date(task.endTime).toLocaleTimeString();
+    const endTimeHours = new Date(task.endTime).getHours();
+    const endTimeMinutes = new Date(task.endTime).getMinutes();
     const taskDate= new Date(task.context.timestamp).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const taskMonth = new Date(task.context.timestamp).toLocaleString('en-US', { month: 'long' });
+    const taskYear = new Date(task.context.timestamp).toLocaleString('en-US', { year: 'numeric' });
+    const taskDay = new Date(task.context.timestamp).toLocaleString('en-US', { day: 'numeric' });
 
     const taskIconSVG = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -1217,20 +1224,25 @@ export function addTaskToUI(task) {
         <div class="task-content">
             <div class="task-header">
                 <label class="task-select">
+                    <div class="task-select-left">
                     <input type="checkbox" class="task-checkbox" title="Select for merging" style="width: 20px; height: 20px; margin-right: 10px;">
                   
-               
+               <strong class="task-name">${task.name}</strong>
+                    </div>
                 <div class="task-time">
                     ${startTime} - ${endTime} ${taskDate}
                 </div>
                  </label>
 
-                <strong class="task-name">${task.name}</strong>
-                <div class="task-icon">
-                <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB4PSI1IiB5PSI1IiB3aWR0aD0iOTAiIGhlaWdodD0iOTAiIHJ4PSIxMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxnIHN0cm9rZT0iIzAwMCIgZmlsbD0ibm9uZSI+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iMzAiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHBhdGggZD0iTTUwIDMwIEEyMCAyMCAwIDAgMSA3MCA1MCBNNTAgNzAgQTIwIDIwIDAgMCAxIDMwIDUwIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxjaXJjbGUgY3g9IjUwIiBjeT0iNTAiIHI9IjEyIiBzdHJva2Utd2lkdGg9IjEuNSIvPjwvZz48ZyBzdHJva2U9IiMwMDAiIHN0cm9rZS13aWR0aD0iMSI+PGxpbmUgeDE9IjUwIiB5MT0iMjAiIHgyPSI1MCIgeTI9IjI4Ii8+PGxpbmUgeDE9IjUwIiB5MT0iNzIiIHgyPSI1MCIgeTI9IjgwIi8+PGxpbmUgeDE9IjIwIiB5MT0iNTAiIHgyPSIyOCIgeTI9IjUwIi8+PGxpbmUgeDE9IjcyIiB5MT0iNTAiIHgyPSI4MCIgeTI9IjUwIi8+PGxpbmUgeDE9IjI5LjMiIHkxPSIyOS4zIiB4Mj0iMzUuMyIgeTI9IjM1LjMiLz48bGluZSB4MT0iNzAuNyIgeTE9IjI5LjMiIHgyPSI2NC43IiB5Mj0iMzUuMyIvPjxsaW5lIHgxPSIyOS4zIiB5MT0iNzAuNyIgeDI9IjM1LjMiIHkyPSI2NC43Ii8+PGxpbmUgeDE9IjcwLjciIHkxPSI3MC43IiB4Mj0iNjQuNyIgeTI9IjY0LjciLz48L2c+PGcgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgZmlsbD0ibm9uZSI+PHBhdGggZD0iTTI1IDI1IEwyNSAzMCBMMzAgMzAiLz48cGF0aCBkPSJNNzUgMjUgTDc1IDMwIEw3MCAzMCIvPjxwYXRoIGQ9Ik0yNSA3NSBMMjUgNzAgTDMwIDcwIi8+PHBhdGggZD0iTTc1IDc1IEw3NSA3MCBMNzAgNzAiLz48L2c+PGc+PGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjEiLz48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSIxLjUiIGZpbGw9IiMwMDAiLz48L2c+PC9zdmc+" alt="Task Icon" style="width: 24px; height: 24px;">
-                </div>
+                
+
+                
+          
             </div>
             <div class="task-actions">
+             <span class="task-project">Project: ${task.project}</span> |
+                    <span class="task-category">Category: ${task.category}</span> |
+                    <span class="task-duration">Duration: ${task.duration} min</span>
                 <label class="billable-checkbox">
                     <input type="checkbox" ${task.billable ? 'checked' : ''} onclick="event.stopPropagation();">
                     <span>Billable</span>
